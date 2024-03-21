@@ -14,5 +14,6 @@ message Dir {
 message DirEntry {
   types.v1.Path path = 1;
   string name = 2;
+  
 }
 
