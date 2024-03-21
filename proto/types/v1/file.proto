@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package types.v1;
+
+option go_package = "types/v1;typesv1";
+
+import "types/v1/path.proto";
+import "google/protobuf/timestamp.proto";
+
+message File {
+  types.v1.FileInfo info = 1;
+  bytes content = 2;
+}
+
+message FileMode {
+  uint32 mode = 1;
+}
+
+message FileInfo {
+  types.v1.Path path = 1;
+  string name = 2;
+  uint64 size = 3;
+  FileMode mode = 4;
+  google.protobuf.Timestamp mode_time = 5;
+  bool is_dir = 6;
+}
+

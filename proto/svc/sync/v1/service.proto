@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package svc.sync.v1;
+
+import "types/v1/dir.proto";
+import "types/v1/file.proto";
+import "types/v1/path.proto";
+import "types/v1/meta.proto";
+
+option go_package = "svc/sync/v1;syncv1";
+
+service SyncService {
+  rpc GetRoot(GetRootRequest) returns (GetRootResponse) {}
+  rpc Stat(StatRequest) returns (StatResponse) {}
+  rpc ListDir(ListDirRequest) returns (ListDirResponse) {}
+}
+
+message GetRootRequest {
+  types.v1.ReqMeta meta = 1000;
+}
+
+message GetRootResponse {
+  types.v1.ResMeta meta = 1000;
+
+  types.v1.Dir root = 1;
+}
+
+message StatRequest {
+  types.v1.ReqMeta meta = 1000;
+ 
+  types.v1.Path path = 1;
+}
+
+message StatResponse {
+  types.v1.ResMeta meta = 1000;
+ 
+  types.v1.FileInfo info = 1;
+}
+
+message ListDirRequest {
+  types.v1.ReqMeta meta = 1000;
+  types.v1.Path path = 1;
+}
+
+message ListDirResponse {
+  types.v1.ResMeta meta = 1000;
+  repeated types.v1.FileInfo dir_entries = 1;
+}

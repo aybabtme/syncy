@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+set -eu
+
+buf_version="1.30.0"
+
+root=$(git rev-parse --show-toplevel)
+
+function buf() {
+    docker run -it --rm -v=${root}:/repo/ -w=/repo/ bufbuild/buf:${buf_version} $@
+}
+
+function main() {
+    buf generate
+}
+
+main
