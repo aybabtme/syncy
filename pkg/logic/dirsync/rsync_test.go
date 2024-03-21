@@ -1,1 +1,0 @@
-package dirsync_test
