@@ -13,6 +13,7 @@ service SyncService {
   rpc GetRoot(GetRootRequest) returns (GetRootResponse) {}
   rpc Stat(StatRequest) returns (StatResponse) {}
   rpc ListDir(ListDirRequest) returns (ListDirResponse) {}
+  rpc Sync(stream SyncRequest) returns (stream SyncResponse) {}
 }
 
 message GetRootRequest {
@@ -45,4 +46,12 @@ message ListDirRequest {
 message ListDirResponse {
   types.v1.ResMeta meta = 1000;
   repeated types.v1.FileInfo dir_entries = 1;
+}
+
+message SyncRequest {
+  types.v1.ReqMeta meta = 1000;
+}
+
+message SyncResponse {
+  types.v1.ReqMeta meta = 1000;
 }
