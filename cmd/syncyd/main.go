@@ -17,10 +17,12 @@ import (
 )
 
 func main() {
-	listenIface := flag.String("listen.iface", "127.0.0.1", "interface to listen on")
-	listenPort := flag.String("listen.port", "7071", "port to listen on")
-	metadbMySQLAddr := flag.String("metadb.mysql.addr", "root@tcp(127.0.0.1:3306)/syncy", "")
-	blobLocalPath := flag.String("blob.local.path", "tmp/blobs", "")
+	var (
+		listenIface     = flag.String("listen.iface", "127.0.0.1", "interface to listen on")
+		listenPort      = flag.String("listen.port", "7071", "port to listen on")
+		metadbMySQLAddr = flag.String("metadb.mysql.addr", "root@tcp(127.0.0.1:3306)/syncy", "")
+		blobLocalPath   = flag.String("blob.local.path", "tmp/blobs", "")
+	)
 	flag.Parse()
 
 	slogOpts := &slog.HandlerOptions{}
@@ -36,7 +38,8 @@ func main() {
 	}
 }
 
-func realMain(ll *slog.Logger,
+func realMain(
+	ll *slog.Logger,
 	listenIface, listenPort string,
 	metadbMySQLAddr string,
 	blobLocalPath string,
@@ -54,9 +57,16 @@ func realMain(ll *slog.Logger,
 		defer db.Close()
 		meta = metadb.NewMySQL(db)
 	}
+	if meta == nil {
+		return fmt.Errorf("no metadata backend provided")
+	}
 	if blobLocalPath != "" {
 		ll.Info("using LocalFS for blobs")
-		blob = blobdb.NewLocalFS(os.DirFS(blobLocalPath))
+		fs := os.DirFS(blobLocalPath).(blobdb.FS)
+		blob = blobdb.NewLocalFS(fs)
+	}
+	if blob == nil {
+		return fmt.Errorf("no blob backend provided")
 	}
 
 	l, err := net.Listen("tcp", net.JoinHostPort(listenIface, listenPort))
@@ -85,7 +95,7 @@ func realMain(ll *slog.Logger,
 
 	srv := http.Server{
 		Handler: mux,
-		// TODO: tls, all the read/write settings, etc
+		// TODO: all the read/write settings, tls, etc
 	}
 	ll.Info("ready to serve requests")
 	if err := srv.Serve(l); err != nil {

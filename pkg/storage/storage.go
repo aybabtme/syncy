@@ -9,10 +9,9 @@ import (
 )
 
 type DB interface {
-	GetRoot(context.Context) (*typesv1.Dir, error)
-	Stat(context.Context, *typesv1.Path) (*typesv1.FileInfo, error)
-	ListDir(context.Context, *typesv1.Path) ([]*typesv1.FileInfo, error)
-	GetSignature(context.Context) (*typesv1.DirSum, error)
+	Stat(context.Context, *typesv1.Path) (*typesv1.FileInfo, bool, error)
+	ListDir(context.Context, *typesv1.Path) ([]*typesv1.FileInfo, bool, error)
+	GetSignature(ctx context.Context, blockSize uint32) (*typesv1.DirSum, error)
 }
 
 type State struct {
@@ -24,15 +23,14 @@ func NewState(meta metadb.Metadata, blob blobdb.Blob) *State {
 	return &State{meta: meta, blob: blob}
 }
 
-func (state *State) GetRoot(ctx context.Context) (*typesv1.Dir, error) {
-	panic("todo")
+func (state *State) Stat(ctx context.Context, path *typesv1.Path) (*typesv1.FileInfo, bool, error) {
+	return state.blob.Stat(ctx, path)
+	// return state.meta.Stat(ctx, path)
 }
-func (state *State) Stat(ctx context.Context, path *typesv1.Path) (*typesv1.FileInfo, error) {
-	panic("todo")
+func (state *State) ListDir(ctx context.Context, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error) {
+	return state.blob.ListDir(ctx, path)
+	// return state.meta.ListDir(ctx, path)
 }
-func (state *State) ListDir(ctx context.Context, path *typesv1.Path) ([]*typesv1.FileInfo, error) {
-	panic("todo")
-}
-func (state *State) GetSignature(ctx context.Context) (*typesv1.DirSum, error) {
-	panic("todo")
+func (state *State) GetSignature(ctx context.Context, blockSize uint32) (*typesv1.DirSum, error) {
+	return state.blob.GetSignature(ctx, blockSize)
 }

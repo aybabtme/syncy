@@ -8,24 +8,8 @@ import (
 
 	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 	"github.com/silvasur/buzhash"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"lukechampine.com/blake3"
 )
-
-// type SinkFile struct {
-// 	Name string
-
-// 	Size    uint64
-// 	ModTime time.Time
-// 	Mode    uint32
-// 	Blocks  []*Block
-// }
-
-// type Block struct {
-// 	FastSig   uint32   // buzhash
-// 	StrongSig [32]byte // blake3 sum256
-// 	Size      uint32
-// }
 
 func ComputeFileSum(
 	ctx context.Context,
@@ -37,12 +21,7 @@ func ComputeFileSum(
 		return nil, fmt.Errorf("reading fileinfo: %w", err)
 	}
 	out := &typesv1.FileSum{
-		Info: &typesv1.FileInfo{
-			Name:    fi.Name(),
-			Size:    uint64(fi.Size()),
-			ModTime: timestamppb.New(fi.ModTime()),
-			Mode:    uint32(fi.Mode()),
-		},
+		Info: typesv1.FileInfoFromFS(fi),
 	}
 
 	buz := buzhash.NewBuzHash(blockSize)
@@ -68,7 +47,7 @@ loop:
 
 		b := &typesv1.FileSumBlock{
 			FastSig:   fastSig,
-			StrongSig: strongSig[:],
+			StrongSig: typesv1.Uint256FromArray32Byte(strongSig),
 			Size:      uint32(n),
 		}
 		out.SumBlocks = append(out.SumBlocks, b)

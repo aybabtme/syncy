@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,6 +17,9 @@ import (
 	"github.com/aybabtme/syncy/pkg/gen/svc/sync/v1/syncv1connect"
 	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 	"github.com/aybabtme/syncy/pkg/logic/dirsync"
+	"github.com/aybabtme/syncy/pkg/logic/syncclient"
+	"github.com/aybabtme/syncy/pkg/storage/blobdb"
+	"github.com/dustin/go-humanize"
 	"github.com/urfave/cli"
 )
 
@@ -41,6 +45,16 @@ var (
 		Name:  "server.path",
 		Value: "/",
 	}
+	maxParallelFileStream = cli.UintFlag{
+		Name:  "max.parallel_file_stream",
+		Value: 8,
+		Usage: "max number of files being uploaded or patches in parallel at any given time",
+	}
+	blockSizeFlag = cli.UintFlag{
+		Name:  "block.size",
+		Value: 1024,
+		Usage: "block size for rsync algorithm",
+	}
 	printerFlag = cli.StringFlag{
 		Name:  "printer",
 		Usage: "must be one of: text, json",
@@ -55,13 +69,15 @@ func main() {
 
 	app := cli.NewApp()
 	app.Name = name
+	app.Usage = "an utility to sync local directories with a remote backend"
 	app.Version = version
 	app.Flags = []cli.Flag{
 		printerFlag,
 	}
 	app.Commands = []cli.Command{
-		syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag),
+		syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag, maxParallelFileStream, blockSizeFlag),
 		statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag),
+		debugCommands(blockSizeFlag),
 	}
 
 	if err := app.Run(os.Args); err != nil {
@@ -71,11 +87,11 @@ func main() {
 
 // Sync project command: sync <absolute folder path>
 
-func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag cli.StringFlag) cli.Command {
+func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag cli.StringFlag, maxParallelFileStreamFlag, blockSizeFlag cli.UintFlag) cli.Command {
 	return cli.Command{
 		Name:  "sync",
 		Usage: "sync a path against a backend",
-		Flags: []cli.Flag{serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag},
+		Flags: []cli.Flag{serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag, blockSizeFlag},
 		Action: func(cctx *cli.Context) error {
 			path := cctx.Args().First()
 			if !filepath.IsAbs(path) {
@@ -93,23 +109,33 @@ func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFla
 			if err != nil {
 				return fmt.Errorf("creating sync service client: %w", err)
 			}
+			sink := syncclient.ClientAdapter(client)
+
+			maxParallelFileStream := cctx.Uint(maxParallelFileStreamFlag.Name)
+
+			blockSize := cctx.Uint(blockSizeFlag.Name)
+			if blockSize < 128 {
+				return fmt.Errorf("minimum block size is 128")
+			}
+			if blockSize >= math.MaxUint32 {
+				return fmt.Errorf("block size must fit in a uint32")
+			}
+
+			syncParams := dirsync.Params{
+				MaxParallelFileStreams: int(maxParallelFileStream),
+				BlockSize:              uint32(blockSize),
+			}
 
 			ll.InfoContext(ctx, "preparing to sync", slog.String("path", path))
 
-			res, err := client.GetSignature(ctx, connect.NewRequest(&syncv1.GetSignatureRequest{}))
-			if err != nil {
-				return fmt.Errorf("getting signature of remote tree: %w", err)
-			}
-
 			src := os.DirFS(path).(dirsync.Source)
 
-			createOp, deleteOp, patchOp, err := dirsync.ComputeTreeDiff(ctx, path, src, res.Msg.Root)
+			err = dirsync.Sync(ctx, path, src, sink, syncParams)
 			if err != nil {
-				return fmt.Errorf("computing tree diff: %w", err)
+				return fmt.Errorf("failed to sync: %w", err)
 			}
-			_, _, _ = createOp, deleteOp, patchOp
 
-			printer.Emit(res.Msg)
+			printer.Emit("sync completed")
 
 			return nil
 		},
@@ -129,6 +155,10 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 				Usage: "describes a file",
 				Flags: []cli.Flag{serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag},
 				Action: func(cctx *cli.Context) error {
+					path := cctx.Args().First()
+					if path == "" {
+						return fmt.Errorf("<path> is required")
+					}
 					ctx, ll, printer, err := makeDeps(cctx)
 					if err != nil {
 						return fmt.Errorf("preparing dependencies: %w", err)
@@ -142,8 +172,7 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 						return fmt.Errorf("creating sync service client: %w", err)
 					}
 
-					path := cctx.Args().First()
-					ll.InfoContext(ctx, "preparing to sync", slog.String("path", path))
+					ll.DebugContext(ctx, "preparing to sync", slog.String("path", path))
 
 					res, err := client.Stat(ctx, connect.NewRequest(&syncv1.StatRequest{
 						Path: &typesv1.Path{
@@ -151,14 +180,22 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 						},
 					}))
 					if err != nil {
-						return fmt.Errorf("stating path: %w", err)
+						if cerr, ok := err.(*connect.Error); ok {
+							if cerr.Code() == connect.CodeNotFound {
+								printer.Error("no file with this name")
+							} else {
+								printer.Error(cerr.Error())
+							}
+							return nil
+						}
+						return fmt.Errorf("listing path: %w", err)
 					}
 
 					fi := res.Msg.Info
 					if fi.IsDir {
 						// it's possible to stat a directory as a file, but the brief requests otherwise
 						printer.Error("path is a directory, not a file")
-						return fmt.Errorf("%q is a directory, not a file", path)
+						return nil
 					}
 
 					printer.Emit(fi)
@@ -171,6 +208,10 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 				Usage: "list a directory's files and child directories",
 				Flags: []cli.Flag{serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag},
 				Action: func(cctx *cli.Context) error {
+					path := cctx.Args().First()
+					if path == "" {
+						return fmt.Errorf("<path> is required")
+					}
 					ctx, ll, printer, err := makeDeps(cctx)
 					if err != nil {
 						return fmt.Errorf("preparing dependencies: %w", err)
@@ -184,8 +225,7 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 						return fmt.Errorf("creating sync service client: %w", err)
 					}
 
-					path := cctx.Args().First()
-					ll.InfoContext(ctx, "preparing to sync", slog.String("path", path))
+					ll.DebugContext(ctx, "preparing to sync", slog.String("path", path))
 
 					res, err := client.ListDir(ctx, connect.NewRequest(&syncv1.ListDirRequest{
 						Path: &typesv1.Path{
@@ -193,10 +233,69 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 						},
 					}))
 					if err != nil {
+						if cerr, ok := err.(*connect.Error); ok {
+							if cerr.Code() == connect.CodeNotFound {
+								printer.Error("no dir with this name")
+							} else {
+								printer.Error(cerr.Error())
+							}
+							return nil
+						}
 						return fmt.Errorf("listing path: %w", err)
 					}
 
 					printer.Emit(res.Msg.DirEntries)
+
+					return nil
+				},
+			},
+		},
+	}
+}
+
+func debugCommands(blockSizeFlag cli.UintFlag) cli.Command {
+	return cli.Command{
+		Name:  "debug",
+		Usage: "debug commands",
+		Subcommands: []cli.Command{
+			{
+				Name:  "dirsum",
+				Usage: "builds the sum tree of a dir",
+				Flags: []cli.Flag{blockSizeFlag},
+				Action: func(cctx *cli.Context) error {
+					path := cctx.Args().First()
+					if path == "" {
+						return fmt.Errorf("<path> is required")
+					}
+					ctx, ll, printer, err := makeDeps(cctx)
+					if err != nil {
+						return fmt.Errorf("preparing dependencies: %w", err)
+					}
+
+					blockSize := cctx.Uint(blockSizeFlag.Name)
+					if blockSize < 128 {
+						return fmt.Errorf("minimum block size is 128")
+					}
+					if blockSize >= math.MaxUint32 {
+						return fmt.Errorf("block size must fit in a uint32")
+					}
+
+					dir := filepath.Dir(path)
+					root := filepath.Base(path)
+					fs := os.DirFS(dir).(blobdb.FS)
+					blob := blobdb.NewLocalFS(fs)
+
+					ll.Info("starting trace of filesystem from path", slog.String("path", path))
+					sum, err := dirsync.TraceSink(ctx, root, blob, uint32(blockSize))
+					if err != nil {
+						return fmt.Errorf("tracing the filesystem: %w", err)
+					}
+
+					ll.Info("done tracing",
+						slog.Uint64("total_size_bytes", sum.Size),
+						slog.String("total_size", humanize.Bytes(sum.Size)),
+					)
+					printer.Emit(sum)
 
 					return nil
 				},
@@ -236,6 +335,8 @@ func makePrinter(cctx *cli.Context, printerFlag cli.StringFlag) (printer, error)
 		return newTextPrinter(os.Stdout), nil
 	case "json":
 		return newJSONPrinter(os.Stdout), nil
+	case "proto", "pb":
+		return newProtoPrinter(os.Stdout), nil
 	default:
 		return nil, fmt.Errorf("unsupported printer format: %q", printer)
 	}

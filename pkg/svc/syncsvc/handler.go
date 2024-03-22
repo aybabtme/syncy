@@ -23,29 +23,17 @@ func NewHandler(ll *slog.Logger, db storage.DB) *Handler {
 	return &Handler{ll: ll, db: db}
 }
 
-func (hdl *Handler) GetRoot(ctx context.Context, req *connect.Request[v1.GetRootRequest]) (*connect.Response[v1.GetRootResponse], error) {
-	ll := hdl.ll.WithGroup("GetRoot")
-	ll.InfoContext(ctx, "received req")
-
-	root, err := hdl.db.GetRoot(ctx)
-	if err != nil {
-		ll.ErrorContext(ctx, "getting root from DB", slog.Any("err", err))
-		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
-	}
-
-	return connect.NewResponse(&v1.GetRootResponse{
-		Root: root,
-	}), nil
-}
-
 func (hdl *Handler) Stat(ctx context.Context, req *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error) {
 	ll := hdl.ll.WithGroup("Stat")
 	ll.InfoContext(ctx, "received req")
 
-	fi, err := hdl.db.Stat(ctx, req.Msg.GetPath())
+	fi, ok, err := hdl.db.Stat(ctx, req.Msg.GetPath())
 	if err != nil {
-		ll.ErrorContext(ctx, "getting stat from DB", slog.Any("err", err))
+		ll.ErrorContext(ctx, "getting stat from DB", slog.String("err", err.Error()))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
+	}
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such file"))
 	}
 
 	return connect.NewResponse(&v1.StatResponse{
@@ -57,10 +45,13 @@ func (hdl *Handler) ListDir(ctx context.Context, req *connect.Request[v1.ListDir
 	ll := hdl.ll.WithGroup("ListDir")
 	ll.InfoContext(ctx, "received req")
 
-	dirEntries, err := hdl.db.ListDir(ctx, req.Msg.GetPath())
+	dirEntries, ok, err := hdl.db.ListDir(ctx, req.Msg.GetPath())
 	if err != nil {
 		ll.ErrorContext(ctx, "getting listdir from DB", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
+	}
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such directory"))
 	}
 
 	return connect.NewResponse(&v1.ListDirResponse{
@@ -72,7 +63,7 @@ func (hdl *Handler) GetSignature(ctx context.Context, req *connect.Request[v1.Ge
 	ll := hdl.ll.WithGroup("GetSignature")
 	ll.InfoContext(ctx, "received req")
 
-	sig, err := hdl.db.GetSignature(ctx)
+	sig, err := hdl.db.GetSignature(ctx, req.Msg.BlockSize)
 	if err != nil {
 		ll.ErrorContext(ctx, "getting signature from DB", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))

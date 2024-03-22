@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+set -eu
+
+root=$(git rev-parse --show-toplevel)
+
+function download_testdata() {
+    local dirname=${root}/testdata/${1}
+    local zipball=$2
+    local zipdst=/tmp/repo.zip
+    [ -e ${zipdst} ] && rm ${zipdst}
+    [ -e ${dirname} ] && rm -r ${dirname}
+    mkdir -p ${dirname}
+    wget ${zipball} -O ${zipdst}
+    unzip ${zipdst} -d ${dirname}
+}
+
+function main() {
+    download_testdata github.com/aybabtme/go-workflows https://github.com/aybabtme/go-workflows/archive/refs/heads/main.zip
+    # download_testdata github.com/keycloak/keycloak https://github.com/keycloak/keycloak/archive/refs/heads/main.zip
+    # download_testdata github.com/JetBrains/intellij-community https://github.com/JetBrains/intellij-community/archive/refs/heads/master.zip
+    # download_testdata github.com/torvalds/linux https://github.com/torvalds/linux/archive/refs/heads/master.zip
+}
+
+main

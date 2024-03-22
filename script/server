@@ -5,7 +5,7 @@ set -eu
 root=$(git rev-parse --show-toplevel)
 
 function syncyd() {
-    go run ${root}/cmd/syncyd/*.go 2>&1 | humanlog
+    go run ${root}/cmd/syncyd/*.go 2>&1 | humanlog --truncate=false
 }
 
 function main() {

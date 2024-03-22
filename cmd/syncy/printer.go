@@ -86,3 +86,42 @@ func (pp *textPrinter) print(v string) {
 		}
 	}
 }
+
+var _ printer = (*jsonPrinter)(nil)
+
+type protoPrinter struct {
+	out io.Writer
+}
+
+func newProtoPrinter(out io.Writer) *protoPrinter {
+	return &protoPrinter{out: out}
+}
+
+func (pp *protoPrinter) Emit(v any) {
+	pp.encode(v)
+}
+
+func (pp *protoPrinter) Error(msg string) {
+	type error struct {
+		Error string `json:"error"`
+	}
+	pp.encode(error{Error: msg})
+}
+
+func (pp *protoPrinter) encode(v any) {
+	var (
+		out []byte
+		err error
+	)
+	if pv, ok := v.(proto.Message); ok {
+		out, err = proto.Marshal(pv)
+	} else {
+		out, err = json.Marshal(v)
+	}
+	if err != nil {
+		panic(err)
+	}
+	if _, err := pp.out.Write(out); err != nil {
+		panic(err)
+	}
+}

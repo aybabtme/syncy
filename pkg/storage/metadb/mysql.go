@@ -9,10 +9,9 @@ import (
 )
 
 type Metadata interface {
-	GetRoot(context.Context) (*typesv1.Dir, error)
-	Stat(context.Context, *typesv1.Path) (*typesv1.FileInfo, error)
-	ListDir(context.Context, *typesv1.Path) ([]*typesv1.FileInfo, error)
-	GetSignature(context.Context) (*typesv1.DirSum, error)
+	Stat(context.Context, *typesv1.Path) (*typesv1.FileInfo, bool, error)
+	ListDir(context.Context, *typesv1.Path) ([]*typesv1.FileInfo, bool, error)
+	GetSignature(ctx context.Context, blockSize uint32) (*typesv1.DirSum, error)
 }
 
 var _ Metadata = (*MySQL)(nil)
@@ -25,18 +24,14 @@ func NewMySQL(db *sql.DB) *MySQL {
 	return &MySQL{db: db}
 }
 
-func (ms *MySQL) GetRoot(ctx context.Context) (*typesv1.Dir, error) {
+func (ms *MySQL) Stat(ctx context.Context, path *typesv1.Path) (*typesv1.FileInfo, bool, error) {
 	panic("todo")
 }
 
-func (ms *MySQL) Stat(ctx context.Context, path *typesv1.Path) (*typesv1.FileInfo, error) {
+func (ms *MySQL) ListDir(ctx context.Context, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error) {
 	panic("todo")
 }
 
-func (ms *MySQL) ListDir(ctx context.Context, path *typesv1.Path) ([]*typesv1.FileInfo, error) {
-	panic("todo")
-}
-
-func (ms *MySQL) GetSignature(ctx context.Context) (*typesv1.DirSum, error) {
+func (ms *MySQL) GetSignature(ctx context.Context, blockSize uint32) (*typesv1.DirSum, error) {
 	panic("todo")
 }

@@ -10,6 +10,7 @@ import "types/v1/file.proto";
 message Dir {
   types.v1.Path path = 1;
   string name = 2;
+  uint64 size = 3;
 }
 
 message DirEntry {
@@ -20,6 +21,7 @@ message DirEntry {
 message DirSum {
   types.v1.Path path = 1;
   string name = 2; 
-  repeated types.v1.DirSum dirs = 3;
-  repeated types.v1.FileSum files = 4;
+  uint64 size = 3;
+  repeated types.v1.DirSum dirs = 4;
+  repeated types.v1.FileSum files = 5;
 }

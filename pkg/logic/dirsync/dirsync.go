@@ -26,6 +26,7 @@ func assert(msg string, cond bool) {
 
 type Params struct {
 	MaxParallelFileStreams int
+	BlockSize              uint32
 }
 
 func Sync(ctx context.Context, root string, src Source, sink Sink, params Params) error {
@@ -33,7 +34,7 @@ func Sync(ctx context.Context, root string, src Source, sink Sink, params Params
 	// 1 deletes for an entire tree, instead of a list of deletes for each file under a tree.
 	// It also allows for the opportunity (future) to make merkle trees to efficiently identify
 	// branches in the tree that have changes (not done here).
-	sigs, err := sink.GetSignatures(ctx)
+	sigs, err := sink.GetSignatures(ctx, params.BlockSize)
 	if err != nil {
 		return fmt.Errorf("getting signatures from sink: %w", err)
 	}

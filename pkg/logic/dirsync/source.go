@@ -47,6 +47,7 @@ type FilePatchOp struct {
 type SourceDir struct {
 	Name  string
 	Mode  uint32
+	Size  uint64
 	Dirs  []*SourceDir
 	Files []*SourceFile
 }
@@ -87,13 +88,15 @@ func traceSource(ctx context.Context, parent, base string, fi fs.FileInfo, fs So
 			return nil, fmt.Errorf("stating %q: %w", path, err)
 		}
 
+		// TODO: encode symlinks somehow?
 		if fsEntry.IsDir() {
 			child, err := traceSource(ctx, path, fsEntry.Name(), fsfi, fs)
 			if err != nil {
 				return nil, fmt.Errorf("tracing %q, %w", path, err)
 			}
 			dir.Dirs = append(dir.Dirs, child)
-		} else {
+			dir.Size += child.Size
+		} else if fsfi.Mode().IsRegular() {
 			file := &SourceFile{
 				Name:    fsEntry.Name(),
 				Size:    uint64(fsfi.Size()),
@@ -101,6 +104,7 @@ func traceSource(ctx context.Context, parent, base string, fi fs.FileInfo, fs So
 				ModTime: fsfi.ModTime(),
 			}
 			dir.Files = append(dir.Files, file)
+			dir.Size += file.Size
 		}
 	}
 	return dir, nil

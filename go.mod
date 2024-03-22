@@ -4,6 +4,7 @@ go 1.22.1
 
 require (
 	connectrpc.com/connect v1.16.0
+	github.com/dustin/go-humanize v1.0.1
 	github.com/fatih/color v1.16.0
 	github.com/go-sql-driver/mysql v1.8.0
 	github.com/hashicorp/go-multierror v1.1.1

@@ -89,7 +89,6 @@ func TestComputeFileSum(t *testing.T) {
 					Name:    "hello.txt",
 					Size:    16,
 					ModTime: timestamppb.New(time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC)),
-					Mode:    2147484013,
 				},
 				SumBlocks: []*typesv1.FileSumBlock{
 					{
@@ -132,7 +131,7 @@ func TestComputeFileSum(t *testing.T) {
 	}
 }
 
-func hexTo32byte(h string) []byte {
+func hexTo32byte(h string) *typesv1.Uint256 {
 	b, err := hex.DecodeString(h)
 	if err != nil {
 		panic(err)
@@ -140,5 +139,5 @@ func hexTo32byte(h string) []byte {
 	if len(b) != 32 {
 		panic(len(b))
 	}
-	return b
+	return typesv1.Uint256FromArray32Byte([32]byte(b))
 }
