@@ -39,21 +39,41 @@ const (
 	SyncServiceStatProcedure = "/svc.sync.v1.SyncService/Stat"
 	// SyncServiceListDirProcedure is the fully-qualified name of the SyncService's ListDir RPC.
 	SyncServiceListDirProcedure = "/svc.sync.v1.SyncService/ListDir"
+	// SyncServiceGetSignatureProcedure is the fully-qualified name of the SyncService's GetSignature
+	// RPC.
+	SyncServiceGetSignatureProcedure = "/svc.sync.v1.SyncService/GetSignature"
+	// SyncServiceCreateProcedure is the fully-qualified name of the SyncService's Create RPC.
+	SyncServiceCreateProcedure = "/svc.sync.v1.SyncService/Create"
+	// SyncServicePatchProcedure is the fully-qualified name of the SyncService's Patch RPC.
+	SyncServicePatchProcedure = "/svc.sync.v1.SyncService/Patch"
+	// SyncServiceDeletesProcedure is the fully-qualified name of the SyncService's Deletes RPC.
+	SyncServiceDeletesProcedure = "/svc.sync.v1.SyncService/Deletes"
 )
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
 var (
-	syncServiceServiceDescriptor       = v1.File_svc_sync_v1_service_proto.Services().ByName("SyncService")
-	syncServiceGetRootMethodDescriptor = syncServiceServiceDescriptor.Methods().ByName("GetRoot")
-	syncServiceStatMethodDescriptor    = syncServiceServiceDescriptor.Methods().ByName("Stat")
-	syncServiceListDirMethodDescriptor = syncServiceServiceDescriptor.Methods().ByName("ListDir")
+	syncServiceServiceDescriptor            = v1.File_svc_sync_v1_service_proto.Services().ByName("SyncService")
+	syncServiceGetRootMethodDescriptor      = syncServiceServiceDescriptor.Methods().ByName("GetRoot")
+	syncServiceStatMethodDescriptor         = syncServiceServiceDescriptor.Methods().ByName("Stat")
+	syncServiceListDirMethodDescriptor      = syncServiceServiceDescriptor.Methods().ByName("ListDir")
+	syncServiceGetSignatureMethodDescriptor = syncServiceServiceDescriptor.Methods().ByName("GetSignature")
+	syncServiceCreateMethodDescriptor       = syncServiceServiceDescriptor.Methods().ByName("Create")
+	syncServicePatchMethodDescriptor        = syncServiceServiceDescriptor.Methods().ByName("Patch")
+	syncServiceDeletesMethodDescriptor      = syncServiceServiceDescriptor.Methods().ByName("Deletes")
 )
 
 // SyncServiceClient is a client for the svc.sync.v1.SyncService service.
 type SyncServiceClient interface {
+	// info
 	GetRoot(context.Context, *connect.Request[v1.GetRootRequest]) (*connect.Response[v1.GetRootResponse], error)
 	Stat(context.Context, *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error)
 	ListDir(context.Context, *connect.Request[v1.ListDirRequest]) (*connect.Response[v1.ListDirResponse], error)
+	// sync
+	// TODO: split in a separate service definition
+	GetSignature(context.Context, *connect.Request[v1.GetSignatureRequest]) (*connect.Response[v1.GetSignatureResponse], error)
+	Create(context.Context, *connect.Request[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error)
+	Patch(context.Context, *connect.Request[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error)
+	Deletes(context.Context, *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error)
 }
 
 // NewSyncServiceClient constructs a client for the svc.sync.v1.SyncService service. By default, it
@@ -84,14 +104,42 @@ func NewSyncServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(syncServiceListDirMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
+		getSignature: connect.NewClient[v1.GetSignatureRequest, v1.GetSignatureResponse](
+			httpClient,
+			baseURL+SyncServiceGetSignatureProcedure,
+			connect.WithSchema(syncServiceGetSignatureMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
+		create: connect.NewClient[v1.CreateRequest, v1.CreateResponse](
+			httpClient,
+			baseURL+SyncServiceCreateProcedure,
+			connect.WithSchema(syncServiceCreateMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
+		patch: connect.NewClient[v1.PatchRequest, v1.PatchResponse](
+			httpClient,
+			baseURL+SyncServicePatchProcedure,
+			connect.WithSchema(syncServicePatchMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
+		deletes: connect.NewClient[v1.DeletesRequest, v1.DeletesResponse](
+			httpClient,
+			baseURL+SyncServiceDeletesProcedure,
+			connect.WithSchema(syncServiceDeletesMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // syncServiceClient implements SyncServiceClient.
 type syncServiceClient struct {
-	getRoot *connect.Client[v1.GetRootRequest, v1.GetRootResponse]
-	stat    *connect.Client[v1.StatRequest, v1.StatResponse]
-	listDir *connect.Client[v1.ListDirRequest, v1.ListDirResponse]
+	getRoot      *connect.Client[v1.GetRootRequest, v1.GetRootResponse]
+	stat         *connect.Client[v1.StatRequest, v1.StatResponse]
+	listDir      *connect.Client[v1.ListDirRequest, v1.ListDirResponse]
+	getSignature *connect.Client[v1.GetSignatureRequest, v1.GetSignatureResponse]
+	create       *connect.Client[v1.CreateRequest, v1.CreateResponse]
+	patch        *connect.Client[v1.PatchRequest, v1.PatchResponse]
+	deletes      *connect.Client[v1.DeletesRequest, v1.DeletesResponse]
 }
 
 // GetRoot calls svc.sync.v1.SyncService.GetRoot.
@@ -109,11 +157,38 @@ func (c *syncServiceClient) ListDir(ctx context.Context, req *connect.Request[v1
 	return c.listDir.CallUnary(ctx, req)
 }
 
+// GetSignature calls svc.sync.v1.SyncService.GetSignature.
+func (c *syncServiceClient) GetSignature(ctx context.Context, req *connect.Request[v1.GetSignatureRequest]) (*connect.Response[v1.GetSignatureResponse], error) {
+	return c.getSignature.CallUnary(ctx, req)
+}
+
+// Create calls svc.sync.v1.SyncService.Create.
+func (c *syncServiceClient) Create(ctx context.Context, req *connect.Request[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error) {
+	return c.create.CallUnary(ctx, req)
+}
+
+// Patch calls svc.sync.v1.SyncService.Patch.
+func (c *syncServiceClient) Patch(ctx context.Context, req *connect.Request[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error) {
+	return c.patch.CallUnary(ctx, req)
+}
+
+// Deletes calls svc.sync.v1.SyncService.Deletes.
+func (c *syncServiceClient) Deletes(ctx context.Context, req *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error) {
+	return c.deletes.CallUnary(ctx, req)
+}
+
 // SyncServiceHandler is an implementation of the svc.sync.v1.SyncService service.
 type SyncServiceHandler interface {
+	// info
 	GetRoot(context.Context, *connect.Request[v1.GetRootRequest]) (*connect.Response[v1.GetRootResponse], error)
 	Stat(context.Context, *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error)
 	ListDir(context.Context, *connect.Request[v1.ListDirRequest]) (*connect.Response[v1.ListDirResponse], error)
+	// sync
+	// TODO: split in a separate service definition
+	GetSignature(context.Context, *connect.Request[v1.GetSignatureRequest]) (*connect.Response[v1.GetSignatureResponse], error)
+	Create(context.Context, *connect.Request[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error)
+	Patch(context.Context, *connect.Request[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error)
+	Deletes(context.Context, *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error)
 }
 
 // NewSyncServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -140,6 +215,30 @@ func NewSyncServiceHandler(svc SyncServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(syncServiceListDirMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
+	syncServiceGetSignatureHandler := connect.NewUnaryHandler(
+		SyncServiceGetSignatureProcedure,
+		svc.GetSignature,
+		connect.WithSchema(syncServiceGetSignatureMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
+	syncServiceCreateHandler := connect.NewUnaryHandler(
+		SyncServiceCreateProcedure,
+		svc.Create,
+		connect.WithSchema(syncServiceCreateMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
+	syncServicePatchHandler := connect.NewUnaryHandler(
+		SyncServicePatchProcedure,
+		svc.Patch,
+		connect.WithSchema(syncServicePatchMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
+	syncServiceDeletesHandler := connect.NewUnaryHandler(
+		SyncServiceDeletesProcedure,
+		svc.Deletes,
+		connect.WithSchema(syncServiceDeletesMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/svc.sync.v1.SyncService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SyncServiceGetRootProcedure:
@@ -148,6 +247,14 @@ func NewSyncServiceHandler(svc SyncServiceHandler, opts ...connect.HandlerOption
 			syncServiceStatHandler.ServeHTTP(w, r)
 		case SyncServiceListDirProcedure:
 			syncServiceListDirHandler.ServeHTTP(w, r)
+		case SyncServiceGetSignatureProcedure:
+			syncServiceGetSignatureHandler.ServeHTTP(w, r)
+		case SyncServiceCreateProcedure:
+			syncServiceCreateHandler.ServeHTTP(w, r)
+		case SyncServicePatchProcedure:
+			syncServicePatchHandler.ServeHTTP(w, r)
+		case SyncServiceDeletesProcedure:
+			syncServiceDeletesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -167,4 +274,20 @@ func (UnimplementedSyncServiceHandler) Stat(context.Context, *connect.Request[v1
 
 func (UnimplementedSyncServiceHandler) ListDir(context.Context, *connect.Request[v1.ListDirRequest]) (*connect.Response[v1.ListDirResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.ListDir is not implemented"))
+}
+
+func (UnimplementedSyncServiceHandler) GetSignature(context.Context, *connect.Request[v1.GetSignatureRequest]) (*connect.Response[v1.GetSignatureResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.GetSignature is not implemented"))
+}
+
+func (UnimplementedSyncServiceHandler) Create(context.Context, *connect.Request[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.Create is not implemented"))
+}
+
+func (UnimplementedSyncServiceHandler) Patch(context.Context, *connect.Request[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.Patch is not implemented"))
+}
+
+func (UnimplementedSyncServiceHandler) Deletes(context.Context, *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.Deletes is not implemented"))
 }

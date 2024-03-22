@@ -15,6 +15,7 @@ import (
 	syncv1 "github.com/aybabtme/syncy/pkg/gen/svc/sync/v1"
 	"github.com/aybabtme/syncy/pkg/gen/svc/sync/v1/syncv1connect"
 	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
+	"github.com/aybabtme/syncy/pkg/logic/dirsync"
 	"github.com/urfave/cli"
 )
 
@@ -76,6 +77,10 @@ func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFla
 		Usage: "sync a path against a backend",
 		Flags: []cli.Flag{serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag},
 		Action: func(cctx *cli.Context) error {
+			path := cctx.Args().First()
+			if !filepath.IsAbs(path) {
+				return fmt.Errorf("<path> is not absolute")
+			}
 			ctx, ll, printer, err := makeDeps(cctx)
 			if err != nil {
 				return fmt.Errorf("preparing dependencies: %w", err)
@@ -89,14 +94,20 @@ func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFla
 				return fmt.Errorf("creating sync service client: %w", err)
 			}
 
-			path := cctx.Args().First()
-
 			ll.InfoContext(ctx, "preparing to sync", slog.String("path", path))
-			// TODO: do an actual sync
-			res, err := client.GetRoot(ctx, connect.NewRequest(&syncv1.GetRootRequest{}))
+
+			res, err := client.GetSignature(ctx, connect.NewRequest(&syncv1.GetSignatureRequest{}))
 			if err != nil {
-				return fmt.Errorf("getting root path: %w", err)
+				return fmt.Errorf("getting signature of remote tree: %w", err)
 			}
+
+			src := os.DirFS(path).(dirsync.Source)
+
+			createOp, deleteOp, patchOp, err := dirsync.ComputeTreeDiff(ctx, path, src, res.Msg.Root)
+			if err != nil {
+				return fmt.Errorf("computing tree diff: %w", err)
+			}
+			_, _, _ = createOp, deleteOp, patchOp
 
 			printer.Emit(res.Msg)
 

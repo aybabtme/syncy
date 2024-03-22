@@ -7,27 +7,18 @@ import (
 	"testing/fstest"
 	"time"
 
+	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func hexTo32byte(h string) [32]byte {
-	b, err := hex.DecodeString(h)
-	if err != nil {
-		panic(err)
-	}
-	if len(b) != 32 {
-		panic(len(b))
-	}
-	return [32]byte(b)
-}
-
-func TestSinkFileSum(t *testing.T) {
+func TestComputeFileSum(t *testing.T) {
 	tests := []struct {
 		name      string
 		filename  string
 		in        *fstest.MapFile
 		blockSize uint32
-		want      *SinkFile
+		want      *typesv1.FileSum
 	}{
 		{
 			name:     "single short block",
@@ -37,11 +28,13 @@ func TestSinkFileSum(t *testing.T) {
 				ModTime: time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC),
 			},
 			blockSize: 32,
-			want: &SinkFile{
-				Name:    "hello.txt",
-				Size:    11,
-				ModTime: time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC),
-				Blocks: []*Block{
+			want: &typesv1.FileSum{
+				Info: &typesv1.FileInfo{
+					Name:    "hello.txt",
+					Size:    11,
+					ModTime: timestamppb.New(time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC)),
+				},
+				SumBlocks: []*typesv1.FileSumBlock{
 					{
 						Size:      11,
 						FastSig:   3468377999,
@@ -58,14 +51,16 @@ func TestSinkFileSum(t *testing.T) {
 				ModTime: time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC),
 			},
 			blockSize: 16,
-			want: &SinkFile{
-				Name:    "hello.txt",
-				Size:    37,
-				ModTime: time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC),
-				Blocks: []*Block{
+			want: &typesv1.FileSum{
+				Info: &typesv1.FileInfo{
+					Name:    "hello.txt",
+					Size:    37,
+					ModTime: timestamppb.New(time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC)),
+				},
+				SumBlocks: []*typesv1.FileSumBlock{
 					{
 						Size:      16,
-						FastSig:   3468377999,
+						FastSig:   2602787317,
 						StrongSig: hexTo32byte("b88aed0ebc9f5b98d92237e2f00916d7479b0c88ce01a35c387f7a83e18cde79"),
 					},
 					{
@@ -89,11 +84,14 @@ func TestSinkFileSum(t *testing.T) {
 				ModTime: time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC),
 			},
 			blockSize: 4,
-			want: &SinkFile{
-				Name:    "hello.txt",
-				Size:    16,
-				ModTime: time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC),
-				Blocks: []*Block{
+			want: &typesv1.FileSum{
+				Info: &typesv1.FileInfo{
+					Name:    "hello.txt",
+					Size:    16,
+					ModTime: timestamppb.New(time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC)),
+					Mode:    2147484013,
+				},
+				SumBlocks: []*typesv1.FileSumBlock{
 					{
 						Size:      4,
 						FastSig:   23584314,
@@ -127,9 +125,20 @@ func TestSinkFileSum(t *testing.T) {
 			require.NoError(t, err)
 			defer f.Close()
 
-			got, err := SumSinkFile(ctx, f, tt.blockSize)
+			got, err := ComputeFileSum(ctx, f, tt.blockSize)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func hexTo32byte(h string) []byte {
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		panic(err)
+	}
+	if len(b) != 32 {
+		panic(len(b))
+	}
+	return b
 }

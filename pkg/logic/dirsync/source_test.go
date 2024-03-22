@@ -27,31 +27,35 @@ func TestTraceSource(t *testing.T) {
 			},
 			want: &SourceDir{
 				Name: "root",
+				Mode: 2147484013,
 				Dirs: []*SourceDir{
 					{
 						Name: "en",
+						Mode: 2147484013,
 						Files: []*SourceFile{
-							{Name: "world"},
+							{Name: "world", Mode: 2147484013},
 						},
 					},
 					{
 						Name: "hello",
+						Mode: 2147484013,
 						Dirs: []*SourceDir{
 							{
 								Name: "fr",
+								Mode: 2147484013,
 								Files: []*SourceFile{
-									{Name: "le_monde"},
+									{Name: "le_monde", Mode: 2147484013},
 								},
 							},
 						},
 						Files: []*SourceFile{
-							{Name: "le_monde"},
-							{Name: "world"},
+							{Name: "le_monde", Mode: 2147484013},
+							{Name: "world", Mode: 2147484013},
 						},
 					},
 				},
 				Files: []*SourceFile{
-					{Name: "world"},
+					{Name: "world", Mode: 2147484013},
 				},
 			},
 		},

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+set -eu
+
+mysql_version="8.3.0"
+
+root=$(git rev-parse --show-toplevel)
+
+function mysql() {
+    docker run \
+        -it \
+        --rm \
+        -e "MYSQL_ALLOW_EMPTY_PASSWORD=true" \
+        -p 3306:3306 \
+        mysql:${mysql_version} $@
+}
+
+function main() {
+    mysql
+}
+
+main

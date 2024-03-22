@@ -4,8 +4,8 @@ go 1.22.1
 
 require (
 	connectrpc.com/connect v1.16.0
-	github.com/coreos/pkg v0.0.0-20240122114842-bbd7aa9bf6fb
 	github.com/fatih/color v1.16.0
+	github.com/go-sql-driver/mysql v1.8.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/kr/pretty v0.3.1
 	github.com/silvasur/buzhash v0.0.0-20160816060738-9bdec3dec7c6
@@ -16,6 +16,7 @@ require (
 )
 
 require (
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect

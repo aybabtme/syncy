@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"path/filepath"
 	"time"
+
+	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 )
 
 type Source interface {
@@ -38,8 +40,8 @@ type DirPatch struct {
 }
 
 type FilePatchOp struct {
-	S       SinkFile
-	S_prime SinkFile
+	S       *typesv1.FileSum
+	S_prime *typesv1.FileSum
 }
 
 type SourceDir struct {
@@ -56,10 +58,6 @@ type SourceFile struct {
 	ModTime time.Time
 	Mode    uint32
 }
-
-// trace sink with hashed files and trees
-// - starting from the root and going deeper into each children,
-//   for all file in `src` and not on `sink`, upload & create dirs
 
 func TraceSource(ctx context.Context, root string, src Source) (*SourceDir, error) {
 	dirinfo, err := src.Stat(root)

@@ -5,6 +5,7 @@ package types.v1;
 option go_package = "types/v1;typesv1";
 
 import "types/v1/path.proto";
+import "types/v1/file.proto";
 
 message Dir {
   types.v1.Path path = 1;
@@ -13,7 +14,12 @@ message Dir {
 
 message DirEntry {
   types.v1.Path path = 1;
-  string name = 2;
-  
+  string name = 2; 
 }
 
+message DirSum {
+  types.v1.Path path = 1;
+  string name = 2; 
+  repeated types.v1.DirSum dirs = 3;
+  repeated types.v1.FileSum files = 4;
+}

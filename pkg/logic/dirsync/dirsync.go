@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 	"github.com/hashicorp/go-multierror"
 )
 
@@ -37,6 +38,9 @@ func Sync(ctx context.Context, root string, src Source, sink Sink, params Params
 		return fmt.Errorf("getting signatures from sink: %w", err)
 	}
 	createOps, deleteOps, patchOps, err := ComputeTreeDiff(ctx, root, src, sigs)
+	if err != nil {
+		return fmt.Errorf("computing tree diff: %w", err)
+	}
 
 	sem := make(chan struct{}, params.MaxParallelFileStreams)
 
@@ -111,7 +115,7 @@ func withSem(ctx context.Context, sem chan struct{}, fn func()) {
 	}
 }
 
-func ComputeTreeDiff(ctx context.Context, root string, src Source, sinkDir *SinkDir) ([]CreateOp, []DeleteOp, []PatchOp, error) {
+func ComputeTreeDiff(ctx context.Context, root string, src Source, sinkDir *typesv1.DirSum) ([]CreateOp, []DeleteOp, []PatchOp, error) {
 	srcDir, err := TraceSource(ctx, root, src)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("enumerating files on source: %w", err)
@@ -119,7 +123,7 @@ func ComputeTreeDiff(ctx context.Context, root string, src Source, sinkDir *Sink
 	return computeDirDiff(ctx, src, root, srcDir, sinkDir)
 }
 
-func computeDirDiff(ctx context.Context, fs fs.FS, path string, src *SourceDir, sink *SinkDir) ([]CreateOp, []DeleteOp, []PatchOp, error) {
+func computeDirDiff(ctx context.Context, fs fs.FS, path string, src *SourceDir, sink *typesv1.DirSum) ([]CreateOp, []DeleteOp, []PatchOp, error) {
 	var (
 		createOps []CreateOp // set(Src)  -  set(Sink) = set to create
 		deleteOps []DeleteOp // set(Src)  ∩  set(Sink) = set to patch
@@ -178,7 +182,7 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path string, src *SourceDir, 
 	}
 	for _, sinkFile := range sink.Files {
 		// set(Sink_file) - set(Src_file)
-		if !srcHasFileNamed(src, sinkFile.Name) {
+		if !srcHasFileNamed(src, sinkFile.Info.Name) {
 			op := deleteFileOp(path, sinkFile)
 			deleteOps = append(deleteOps, op)
 		}
@@ -208,12 +212,12 @@ func createOpsForDir(path string, dir *SourceDir) []CreateOp {
 	return ops
 }
 
-func sinkHasDirNamed(sink *SinkDir, name string) (*SinkDir, bool) {
+func sinkHasDirNamed(sink *typesv1.DirSum, name string) (*typesv1.DirSum, bool) {
 	// relies on the fact that entries are sorted
-	assert("must be sorted", slices.IsSortedFunc(sink.Dirs, func(a, b *SinkDir) int {
+	assert("must be sorted", slices.IsSortedFunc(sink.Dirs, func(a, b *typesv1.DirSum) int {
 		return strings.Compare(a.Name, b.Name)
 	}))
-	i, found := slices.BinarySearchFunc(sink.Dirs, name, func(dir *SinkDir, name string) int {
+	i, found := slices.BinarySearchFunc(sink.Dirs, name, func(dir *typesv1.DirSum, name string) int {
 		return strings.Compare(dir.Name, name)
 	})
 	if !found {
@@ -222,13 +226,13 @@ func sinkHasDirNamed(sink *SinkDir, name string) (*SinkDir, bool) {
 	return sink.Dirs[i], found
 }
 
-func sinkHasFileNamed(sink *SinkDir, name string) (*SinkFile, bool) {
+func sinkHasFileNamed(sink *typesv1.DirSum, name string) (*typesv1.FileSum, bool) {
 	// relies on the fact that entries are sorted
-	assert("must be sorted", slices.IsSortedFunc(sink.Files, func(a, b *SinkFile) int {
-		return strings.Compare(a.Name, b.Name)
+	assert("must be sorted", slices.IsSortedFunc(sink.Files, func(a, b *typesv1.FileSum) int {
+		return strings.Compare(a.Info.Name, b.Info.Name)
 	}))
-	i, found := slices.BinarySearchFunc(sink.Files, name, func(file *SinkFile, name string) int {
-		return strings.Compare(file.Name, name)
+	i, found := slices.BinarySearchFunc(sink.Files, name, func(file *typesv1.FileSum, name string) int {
+		return strings.Compare(file.Info.Name, name)
 	})
 	if !found {
 		return nil, false
@@ -266,7 +270,7 @@ func createDirOp(path string, dir *SourceDir) CreateOp {
 	}
 }
 
-func deleteDirOp(path string, sink *SinkDir) DeleteOp {
+func deleteDirOp(path string, sink *typesv1.DirSum) DeleteOp {
 	return DeleteOp{
 		Path: filepath.Join(path, sink.Name),
 	}
@@ -279,7 +283,7 @@ func patchDirOp(path string, dirname string, diff *DirPatchOp) PatchOp {
 	}
 }
 
-func makeDirDiff(src *SourceDir, sink *SinkDir) *DirPatchOp {
+func makeDirDiff(src *SourceDir, sink *typesv1.DirSum) *DirPatchOp {
 	out := &DirPatchOp{}
 	return out
 }
@@ -291,9 +295,9 @@ func createFileOp(path string, file *SourceFile) CreateOp {
 	}
 }
 
-func deleteFileOp(path string, sink *SinkFile) DeleteOp {
+func deleteFileOp(path string, sink *typesv1.FileSum) DeleteOp {
 	return DeleteOp{
-		Path: filepath.Join(path, sink.Name),
+		Path: filepath.Join(path, sink.Info.Name),
 	}
 }
 
@@ -304,7 +308,7 @@ func patchFileOp(path string, diff *FilePatchOp) PatchOp {
 	}
 }
 
-func makeFileDiff(src *SourceFile, sink *SinkFile) *FilePatchOp {
+func makeFileDiff(src *SourceFile, sink *typesv1.FileSum) *FilePatchOp {
 	out := &FilePatchOp{}
 	return out
 }

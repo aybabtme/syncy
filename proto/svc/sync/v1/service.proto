@@ -10,10 +10,17 @@ import "types/v1/meta.proto";
 option go_package = "svc/sync/v1;syncv1";
 
 service SyncService {
+  // info
   rpc GetRoot(GetRootRequest) returns (GetRootResponse) {}
   rpc Stat(StatRequest) returns (StatResponse) {}
   rpc ListDir(ListDirRequest) returns (ListDirResponse) {}
-  rpc Sync(stream SyncRequest) returns (stream SyncResponse) {}
+  
+  // sync
+  // TODO: split in a separate service definition
+  rpc GetSignature(GetSignatureRequest) returns (GetSignatureResponse) {}
+  rpc Create(CreateRequest) returns (CreateResponse) {}
+  rpc Patch(PatchRequest) returns (PatchResponse) {}
+  rpc Deletes(DeletesRequest) returns (DeletesResponse) {}
 }
 
 message GetRootRequest {
@@ -48,10 +55,29 @@ message ListDirResponse {
   repeated types.v1.FileInfo dir_entries = 1;
 }
 
-message SyncRequest {
-  types.v1.ReqMeta meta = 1000;
+message GetSignatureRequest {
+  types.v1.ResMeta meta = 1000;
 }
 
-message SyncResponse {
-  types.v1.ReqMeta meta = 1000;
+message GetSignatureResponse {
+  types.v1.ResMeta meta = 1000;
+  types.v1.DirSum root = 1;
+}
+
+message CreateRequest {
+}
+
+message CreateResponse {
+}
+
+message PatchRequest {
+}
+
+message PatchResponse {
+}
+
+message DeletesRequest {
+}
+
+message DeletesResponse {
 }

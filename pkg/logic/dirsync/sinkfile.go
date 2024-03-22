@@ -5,39 +5,44 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"time"
 
+	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 	"github.com/silvasur/buzhash"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"lukechampine.com/blake3"
 )
 
-type SinkFile struct {
-	Name string
+// type SinkFile struct {
+// 	Name string
 
-	Size    uint64
-	ModTime time.Time
-	Blocks  []*Block
-}
+// 	Size    uint64
+// 	ModTime time.Time
+// 	Mode    uint32
+// 	Blocks  []*Block
+// }
 
-type Block struct {
-	FastSig   uint32   // buzhash
-	StrongSig [32]byte // blake3 sum256
-	Size      uint32
-}
+// type Block struct {
+// 	FastSig   uint32   // buzhash
+// 	StrongSig [32]byte // blake3 sum256
+// 	Size      uint32
+// }
 
-func SumSinkFile(
+func ComputeFileSum(
 	ctx context.Context,
 	file fs.File,
 	blockSize uint32,
-) (*SinkFile, error) {
+) (*typesv1.FileSum, error) {
 	fi, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("reading fileinfo: %w", err)
 	}
-	out := &SinkFile{
-		Name:    fi.Name(),
-		Size:    uint64(fi.Size()),
-		ModTime: fi.ModTime(),
+	out := &typesv1.FileSum{
+		Info: &typesv1.FileInfo{
+			Name:    fi.Name(),
+			Size:    uint64(fi.Size()),
+			ModTime: timestamppb.New(fi.ModTime()),
+			Mode:    uint32(fi.Mode()),
+		},
 	}
 
 	buz := buzhash.NewBuzHash(blockSize)
@@ -61,12 +66,12 @@ loop:
 		fastSig := buz.Sum32()
 		strongSig := blake3.Sum256(block[:n])
 
-		b := &Block{
+		b := &typesv1.FileSumBlock{
 			FastSig:   fastSig,
-			StrongSig: strongSig,
+			StrongSig: strongSig[:],
 			Size:      uint32(n),
 		}
-		out.Blocks = append(out.Blocks, b)
+		out.SumBlocks = append(out.SumBlocks, b)
 		// reset the reused parts
 		buz.Reset()
 	}
