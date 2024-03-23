@@ -56,7 +56,6 @@ message ListDirResponse {
 
 message GetSignatureRequest {
   types.v1.ResMeta meta = 1000;
-  uint32 block_size = 1;
 }
 
 message GetSignatureResponse {

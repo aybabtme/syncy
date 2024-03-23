@@ -9,7 +9,7 @@ import (
 )
 
 type Sink interface {
-	GetSignatures(ctx context.Context, blockSize uint32) (*typesv1.DirSum, error)
+	GetSignatures(ctx context.Context) (*typesv1.DirSum, error)
 	CreateFile(context.Context, CreateOp) error
 	DeleteFiles(context.Context, []DeleteOp) error
 	PatchFile(context.Context, PatchOp) error
@@ -18,11 +18,11 @@ type Sink interface {
 type SumDB interface {
 	// ListDir returns entries in a dir, ordered by name.
 	ListDir(ctx context.Context, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error)
-	GetFileSum(ctx context.Context, path *typesv1.Path, name string, blockSize uint32) (*typesv1.FileSum, bool, error)
+	GetFileSum(ctx context.Context, path *typesv1.Path, name string) (*typesv1.FileSum, bool, error)
 }
 
-func TraceSink(ctx context.Context, root string, sumDB SumDB, blockSize uint32) (*typesv1.DirSum, error) {
-	return trace(ctx, nil, root, sumDB, blockSize)
+func TraceSink(ctx context.Context, root string, sumDB SumDB) (*typesv1.DirSum, error) {
+	return trace(ctx, nil, root, sumDB)
 }
 
 func filepathJoin(parent *typesv1.Path, name string) *typesv1.Path {
@@ -36,7 +36,7 @@ func pathString(path *typesv1.Path) string {
 	return filepath.Join(path.Elements...)
 }
 
-func trace(ctx context.Context, parent *typesv1.Path, base string, sumDB SumDB, blockSize uint32) (*typesv1.DirSum, error) {
+func trace(ctx context.Context, parent *typesv1.Path, base string, sumDB SumDB) (*typesv1.DirSum, error) {
 	dir := &typesv1.DirSum{
 		Path: parent,
 		Name: base,
@@ -55,7 +55,7 @@ func trace(ctx context.Context, parent *typesv1.Path, base string, sumDB SumDB, 
 	for _, fsEntry := range fsEntries {
 		if fsEntry.IsDir {
 			path := filepathJoin(parent, base)
-			child, err := trace(ctx, path, fsEntry.Name, sumDB, blockSize)
+			child, err := trace(ctx, path, fsEntry.Name, sumDB)
 			if err != nil {
 				return nil, fmt.Errorf("tracing %q, %w", pathString(path), err)
 			}
@@ -63,7 +63,7 @@ func trace(ctx context.Context, parent *typesv1.Path, base string, sumDB SumDB, 
 			dir.Size += child.Size
 		} else {
 			path := filepathJoin(parent, base)
-			file, ok, err := sumDB.GetFileSum(ctx, path, fsEntry.Name, blockSize)
+			file, ok, err := sumDB.GetFileSum(ctx, path, fsEntry.Name)
 			if err != nil {
 				return nil, fmt.Errorf("looking up filesum for file %q in %q: %w", fsEntry.Name, pathString(path), err)
 			}

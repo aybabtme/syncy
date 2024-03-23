@@ -11,19 +11,24 @@ import (
 	"lukechampine.com/blake3"
 )
 
-func ComputeFileSum(
-	ctx context.Context,
-	file fs.File,
-	blockSize uint32,
-) (*typesv1.FileSum, error) {
+func ComputeFileSum(ctx context.Context, file fs.File) (*typesv1.FileSum, error) {
 	fi, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("reading fileinfo: %w", err)
 	}
+	pfi := typesv1.FileInfoFromFS(fi)
+	return computeFileSum(ctx, file, pfi, blockSize(fi.Size()))
+}
+func computeFileSum(
+	ctx context.Context,
+	file io.Reader,
+	fi *typesv1.FileInfo,
+	blockSize uint32,
+) (*typesv1.FileSum, error) {
 	out := &typesv1.FileSum{
-		Info: typesv1.FileInfoFromFS(fi),
+		Info:      fi,
+		BlockSize: blockSize,
 	}
-
 	buz := buzhash.NewBuzHash(blockSize)
 	more := true
 	block := make([]byte, blockSize) // TODO: use sync.Pool

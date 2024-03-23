@@ -6,8 +6,6 @@ import (
 	"io/fs"
 	"path/filepath"
 	"time"
-
-	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 )
 
 type Source interface {
@@ -23,25 +21,6 @@ type CreateOp struct {
 
 type DeleteOp struct {
 	Path string
-}
-
-type PatchOp struct {
-	Path string
-	Dir  *DirPatchOp
-	File *FilePatchOp
-}
-
-type DirPatchOp struct {
-	DirPatches []DirPatch
-}
-
-type DirPatch struct {
-	SetMode *uint32
-}
-
-type FilePatchOp struct {
-	S       *typesv1.FileSum
-	S_prime *typesv1.FileSum
 }
 
 type SourceDir struct {

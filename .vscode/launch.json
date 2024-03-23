@@ -12,6 +12,20 @@
             "program": "${workspaceFolder}/cmd/syncy/",
             "cwd": "${workspaceFolder}",
             "args": ["debug", "dirsum", "testdata/github.com/aybabtme/go-workflows"]
+        },
+        {
+            "name": "debug make-patch xlarge-no-similarity",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/syncy/",
+            "cwd": "${workspaceFolder}",
+            "args": ["debug", "make-patch", 
+                "--out", "testdata/golden/xlarge-no-similarity/patch.bin",
+                "testdata/golden/xlarge-no-similarity/src.bin",
+                "testdata/golden/xlarge-no-similarity/dst.bin",
+            ],
+            
         }
     ]
 }

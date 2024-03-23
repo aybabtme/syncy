@@ -11,7 +11,7 @@ import (
 type DB interface {
 	Stat(context.Context, *typesv1.Path) (*typesv1.FileInfo, bool, error)
 	ListDir(context.Context, *typesv1.Path) ([]*typesv1.FileInfo, bool, error)
-	GetSignature(ctx context.Context, blockSize uint32) (*typesv1.DirSum, error)
+	GetSignature(ctx context.Context) (*typesv1.DirSum, error)
 }
 
 type State struct {
@@ -31,6 +31,6 @@ func (state *State) ListDir(ctx context.Context, path *typesv1.Path) ([]*typesv1
 	return state.blob.ListDir(ctx, path)
 	// return state.meta.ListDir(ctx, path)
 }
-func (state *State) GetSignature(ctx context.Context, blockSize uint32) (*typesv1.DirSum, error) {
-	return state.blob.GetSignature(ctx, blockSize)
+func (state *State) GetSignature(ctx context.Context) (*typesv1.DirSum, error) {
+	return state.blob.GetSignature(ctx)
 }

@@ -21,10 +21,8 @@ func ClientAdapter(client syncv1connect.SyncServiceClient) *Sink {
 	return &Sink{client: client}
 }
 
-func (sk *Sink) GetSignatures(ctx context.Context, blockSize uint32) (*typesv1.DirSum, error) {
-	res, err := sk.client.GetSignature(ctx, connect.NewRequest(&syncv1.GetSignatureRequest{
-		BlockSize: blockSize,
-	}))
+func (sk *Sink) GetSignatures(ctx context.Context) (*typesv1.DirSum, error) {
+	res, err := sk.client.GetSignature(ctx, connect.NewRequest(&syncv1.GetSignatureRequest{}))
 	if err != nil {
 		return nil, err
 	}

@@ -22,13 +22,26 @@ message FileInfo {
 
 message FileSum {
   types.v1.FileInfo info = 1;
-  repeated types.v1.FileSumBlock sum_blocks = 2;
+  uint32 block_size = 2;
+  repeated types.v1.FileSumBlock sum_blocks = 3;
 }
 
 message FileSumBlock {
   uint32 fast_sig = 1; // buzhash
   Uint256 strong_sig = 2; // blake3 sum256 (32 bytes)
   uint32 size = 3;
+}
+
+message FilePatch {
+  types.v1.FileInfo info = 1;
+  repeated types.v1.FileBlockPatch blocks = 2;
+}
+
+message FileBlockPatch {
+  oneof patch {
+    uint32 block_id = 1; // ID of the block with the data
+    bytes data = 2; // actual data to add
+  }
 }
 
 message Uint256 {

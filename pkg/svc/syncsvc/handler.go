@@ -63,7 +63,7 @@ func (hdl *Handler) GetSignature(ctx context.Context, req *connect.Request[v1.Ge
 	ll := hdl.ll.WithGroup("GetSignature")
 	ll.InfoContext(ctx, "received req")
 
-	sig, err := hdl.db.GetSignature(ctx, req.Msg.BlockSize)
+	sig, err := hdl.db.GetSignature(ctx)
 	if err != nil {
 		ll.ErrorContext(ctx, "getting signature from DB", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))

@@ -26,7 +26,6 @@ func assert(msg string, cond bool) {
 
 type Params struct {
 	MaxParallelFileStreams int
-	BlockSize              uint32
 }
 
 func Sync(ctx context.Context, root string, src Source, sink Sink, params Params) error {
@@ -34,7 +33,7 @@ func Sync(ctx context.Context, root string, src Source, sink Sink, params Params
 	// 1 deletes for an entire tree, instead of a list of deletes for each file under a tree.
 	// It also allows for the opportunity (future) to make merkle trees to efficiently identify
 	// branches in the tree that have changes (not done here).
-	sigs, err := sink.GetSignatures(ctx, params.BlockSize)
+	sigs, err := sink.GetSignatures(ctx)
 	if err != nil {
 		return fmt.Errorf("getting signatures from sink: %w", err)
 	}
@@ -62,7 +61,8 @@ func Sync(ctx context.Context, root string, src Source, sink Sink, params Params
 		go func() {
 			defer wg.Done()
 			withSem(ctx, sem, func() {
-				err := rsync(ctx, src, sink, patchOp)
+				_ = patchOp
+				// err := Rsync(ctx, src, sink, patchOp)
 				trySendErr(ctx, errc, err)
 			})
 		}()
@@ -315,23 +315,5 @@ func makeFileDiff(src *SourceFile, sink *typesv1.FileSum) *FilePatchOp {
 }
 
 func upload(ctx context.Context, A Source, B Sink, createOp CreateOp) error {
-	panic("todo")
-}
-
-func rsync(ctx context.Context, A Source, B Sink, patchOp PatchOp) error {
-	// 1) B sends some data S based on b_i to A
-	// 2) A matches this against a_i and sends some data D to B
-	// 3) B constructs the new file using b_i, S and D
-
-	// 1.1) B divides b_i into N equally sized blocks b'_j and
-	//      computes a signature S_j on each block.
-	// 1.2) These signatures are sent to A.
-	// 2.1) A divides a_i into N blocks a'_k and computes S'_k
-	//      on each block.
-	// 2.2) A searches for S_j matching S'_k for all k.
-	// 2.3) for each k, A sends to B either the block number j
-	//      in S_j that matched S'k or a literal block a'_k.
-	// 3.1) B constructs a_i using blocks from b_i or literal
-	//      blocks from a_i
 	panic("todo")
 }

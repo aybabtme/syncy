@@ -34,6 +34,7 @@ func TestComputeFileSum(t *testing.T) {
 					Size:    11,
 					ModTime: timestamppb.New(time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC)),
 				},
+				BlockSize: 32,
 				SumBlocks: []*typesv1.FileSumBlock{
 					{
 						Size:      11,
@@ -57,6 +58,7 @@ func TestComputeFileSum(t *testing.T) {
 					Size:    37,
 					ModTime: timestamppb.New(time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC)),
 				},
+				BlockSize: 16,
 				SumBlocks: []*typesv1.FileSumBlock{
 					{
 						Size:      16,
@@ -90,6 +92,7 @@ func TestComputeFileSum(t *testing.T) {
 					Size:    16,
 					ModTime: timestamppb.New(time.Date(2023, 3, 21, 17, 42, 58, 0, time.UTC)),
 				},
+				BlockSize: 4,
 				SumBlocks: []*typesv1.FileSumBlock{
 					{
 						Size:      4,
@@ -118,13 +121,14 @@ func TestComputeFileSum(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-
 			fs := fstest.MapFS{tt.filename: tt.in}
 			f, err := fs.Open(tt.filename)
 			require.NoError(t, err)
 			defer f.Close()
+			fi, err := f.Stat()
+			require.NoError(t, err)
 
-			got, err := ComputeFileSum(ctx, f, tt.blockSize)
+			got, err := computeFileSum(ctx, f, typesv1.FileInfoFromFS(fi), tt.blockSize)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
 		})
