@@ -45,33 +45,33 @@ func TraceSource(ctx context.Context, root string, src Source) (*SourceDir, erro
 		return nil, fmt.Errorf("stating root: %w", err)
 	}
 
-	return traceSource(ctx, "", root, dirinfo, src)
+	return traceSource(ctx, root, dirinfo, src)
 }
 
-func traceSource(ctx context.Context, parent, base string, fi fs.FileInfo, fs Source) (*SourceDir, error) {
+func traceSource(ctx context.Context, base string, fi fs.FileInfo, fs Source) (*SourceDir, error) {
 	dir := &SourceDir{
-		Name: base,
+		Name: fi.Name(),
 		Mode: uint32(fi.Mode()),
 	}
 
-	fsEntries, err := fs.ReadDir(filepath.Join(parent, base))
+	fsEntries, err := fs.ReadDir(base)
 	if err != nil {
 		return nil, fmt.Errorf("reading dir: %w", err)
 	}
 
 	// `fsEntries`` is guaranteed to be sorted, per `fs.ReadDir`'s contract
 	for _, fsEntry := range fsEntries {
-		path := filepath.Join(parent, base)
-		fsfi, err := fs.Stat(path)
+		entryPath := filepath.Join(base, fsEntry.Name())
+		fsfi, err := fs.Stat(entryPath)
 		if err != nil {
-			return nil, fmt.Errorf("stating %q: %w", path, err)
+			return nil, fmt.Errorf("stating %q: %w", entryPath, err)
 		}
 
 		// TODO: encode symlinks somehow?
 		if fsEntry.IsDir() {
-			child, err := traceSource(ctx, path, fsEntry.Name(), fsfi, fs)
+			child, err := traceSource(ctx, entryPath, fsfi, fs)
 			if err != nil {
-				return nil, fmt.Errorf("tracing %q, %w", path, err)
+				return nil, fmt.Errorf("tracing %q, %w", entryPath, err)
 			}
 			dir.Dirs = append(dir.Dirs, child)
 			dir.Size += child.Size

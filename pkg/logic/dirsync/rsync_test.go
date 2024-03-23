@@ -74,7 +74,7 @@ func TestRsync(t *testing.T) {
 					if len(data) == 0 {
 						panic("what is this")
 					}
-					n, err := patcher.Write(data)
+					n, err := patcher.Copy(bytes.NewReader(data))
 					gotPatches = append(gotPatches, string(data))
 					return n, err
 				},

@@ -4,6 +4,28 @@ set -eu
 
 root=$(git rev-parse --show-toplevel)
 
+function main() {
+    download_testdata github.com/aybabtme/go-workflows https://github.com/aybabtme/go-workflows/archive/refs/heads/main.zip
+    # download_testdata github.com/keycloak/keycloak https://github.com/keycloak/keycloak/archive/refs/heads/main.zip
+    # download_testdata github.com/JetBrains/intellij-community https://github.com/JetBrains/intellij-community/archive/refs/heads/master.zip
+    # download_testdata github.com/torvalds/linux https://github.com/torvalds/linux/archive/refs/heads/master.zip
+    make_no_similar_testdata "1gb" 1073741824
+    make_no_similar_testdata "1mb" 1048576
+    make_no_similar_testdata "1kb" 1024
+    make_25p_similar_testdata "1gb" 1073741824
+    make_25p_similar_testdata "1mb" 1048576
+    make_25p_similar_testdata "1kb" 1024
+    make_50p_similar_testdata "1gb" 1073741824
+    make_50p_similar_testdata "1mb" 1048576
+    make_50p_similar_testdata "1kb" 1024
+    make_75p_similar_testdata "1gb" 1073741824
+    make_75p_similar_testdata "1mb" 1048576
+    make_75p_similar_testdata "1kb" 1024
+    make_copy_testdata "1gb" 1073741824
+    make_copy_testdata "1mb" 1048576
+    make_copy_testdata "1kb" 1024
+}
+
 function download_testdata() {
     local dirname=${root}/testdata/${1}
     local zipball=$2
@@ -15,11 +37,57 @@ function download_testdata() {
     unzip ${zipdst} -d ${dirname}
 }
 
-function main() {
-    download_testdata github.com/aybabtme/go-workflows https://github.com/aybabtme/go-workflows/archive/refs/heads/main.zip
-    # download_testdata github.com/keycloak/keycloak https://github.com/keycloak/keycloak/archive/refs/heads/main.zip
-    # download_testdata github.com/JetBrains/intellij-community https://github.com/JetBrains/intellij-community/archive/refs/heads/master.zip
-    # download_testdata github.com/torvalds/linux https://github.com/torvalds/linux/archive/refs/heads/master.zip
+function make_25p_similar_testdata() {
+    local dirname=${root}/testdata/synth/25p/${1}
+    local size=${2}
+    local quarter=$((${size} / 4))
+    local threequarter=$((${size} / 4))
+    echo "generating src/dst pair with 25% similarity, size ${size}"
+    mkdir -p ${dirname}
+    head -c ${size} < /dev/urandom > ${dirname}/src.bin
+    head -c ${quarter} < ${dirname}/src.bin > ${dirname}/dst.bin
+    head -c ${threequarter} < /dev/urandom >> ${dirname}/dst.bin
+}
+
+function make_50p_similar_testdata() {
+    local dirname=${root}/testdata/synth/50p/${1}
+    local size=${2}
+    local half=$((${size} / 2))
+    echo "generating src/dst pair with 50% similarity, size ${size}"
+    mkdir -p ${dirname}
+    head -c ${size} < /dev/urandom > ${dirname}/src.bin
+    head -c ${half} < ${dirname}/src.bin > ${dirname}/dst.bin
+    head -c ${half} < /dev/urandom >> ${dirname}/dst.bin
+}
+
+function make_75p_similar_testdata() {
+    local dirname=${root}/testdata/synth/25p/${1}
+    local size=${2}
+    local quarter=$((${size} / 4))
+    local threequarter=$((${size} / 4))
+    echo "generating src/dst pair with 25% similarity, size ${size}"
+    mkdir -p ${dirname}
+    head -c ${size} < /dev/urandom > ${dirname}/src.bin
+    head -c ${threequarter} < ${dirname}/src.bin > ${dirname}/dst.bin
+    head -c ${quarter} < /dev/urandom >> ${dirname}/dst.bin
+}
+
+function make_copy_testdata() {
+    local dirname=${root}/testdata/synth/100p/${1}
+    local size=${2}
+    echo "generating src/dst pair with 100% similarity, size ${size}"
+    mkdir -p ${dirname}
+    head -c ${size} < /dev/urandom > ${dirname}/src.bin
+    cp ${dirname}/src.bin ${dirname}/dst.bin
+}
+
+function make_no_similar_testdata() {
+    local dirname=${root}/testdata/synth/0p/${1}
+    local size=${2}
+    mkdir -p ${dirname}
+    echo "generating src/dst pair with 0% similarity, size ${size}"
+    head -c ${size} < /dev/urandom > ${dirname}/src.bin
+    head -c ${size} < /dev/urandom > ${dirname}/dst.bin
 }
 
 main

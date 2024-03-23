@@ -527,21 +527,13 @@ func debugCommands(outFlag cli.StringFlag) cli.Command {
 					start := time.Now()
 					patcher := dirsync.NewFilePatcher(origf, dstf, treeSum)
 					patchedSize, err := patchcodec.NewDecoder(patchf).Decode(
-						func(u uint32) (int, error) {
-							return patcher.WriteBlock(u)
-						},
-						func(r io.Reader) (int, error) {
-							n, err := io.Copy(patcher, r)
-							return int(n), err
-						},
+						patcher.WriteBlock,
+						patcher.Copy,
 					)
 					if err != nil {
-						return fmt.Errorf("decoding patch file %q: %w", patch, err)
+						return fmt.Errorf("patching file %q: %w", patch, err)
 					}
 					duration := time.Since(start)
-					if err != nil {
-						return fmt.Errorf("generating patch list for file: %w", err)
-					}
 					bytesPerSec := uint64(float64(patchedSize) / duration.Seconds())
 					ll.Info("patch applied",
 						slog.Int64("orig_size_bytes", origfi.Size()),
@@ -555,6 +547,89 @@ func debugCommands(outFlag cli.StringFlag) cli.Command {
 						slog.Float64("speedup", float64(patchfi.Size())/float64(patchedSize)),
 						slog.String("patch_speed", humanize.IBytes(bytesPerSec)+"/s"),
 					)
+
+					return nil
+				},
+			},
+			{
+				Name:  "local-rsync",
+				Usage: "perform the full rsync algorithm on local files",
+				Flags: []cli.Flag{},
+				Action: func(cctx *cli.Context) error {
+					src := cctx.Args().Get(0)
+					if src == "" {
+						return fmt.Errorf("<src> is required")
+					}
+					orig := cctx.Args().Get(1)
+					if orig == "" {
+						return fmt.Errorf("<orig> is required")
+					}
+					patch := cctx.Args().Get(2)
+					if patch == "" {
+						return fmt.Errorf("<patch> is required")
+					}
+					dst := cctx.Args().Get(3)
+					if dst == "" {
+						return fmt.Errorf("<dst> is required")
+					}
+
+					ctx, ll, _, err := makeDeps(cctx)
+					if err != nil {
+						return fmt.Errorf("preparing dependencies: %w", err)
+					}
+
+					srcf, err := os.Open(src)
+					if err != nil {
+						return fmt.Errorf("opening <src> %q: %w", src, err)
+					}
+					defer srcf.Close()
+					origf, err := os.Open(orig)
+					if err != nil {
+						return fmt.Errorf("opening <orig> %q: %w", orig, err)
+					}
+					defer origf.Close()
+					patchf, err := os.Create(patch)
+					if err != nil {
+						return fmt.Errorf("creating <patch> %q: %w", patch, err)
+					}
+					defer patchf.Close()
+					dstf, err := os.Create(dst)
+					if err != nil {
+						return fmt.Errorf("creating <dst> %q: %w", dst, err)
+					}
+					defer dstf.Close()
+
+					ll.Info("computing file sum")
+					sum, err := dirsync.ComputeFileSum(ctx, dstf)
+					if err != nil {
+						return fmt.Errorf("computing file sum of <dst>: %w", err)
+					}
+
+					ll.Info("creating patch")
+					enc := patchcodec.NewEncoder(patchf)
+					_, err = dirsync.Rsync(ctx, srcf, sum, enc.WriteBlock, enc.WriteBlockID)
+					if err != nil {
+						return fmt.Errorf("computing patch file from <src> to <dst>: %w", err)
+					}
+
+					if err := patchf.Close(); err != nil {
+						return fmt.Errorf("flushing patch file <patch>: %w", err)
+					} else if patchf, err = os.Open(patch); err != nil {
+						return fmt.Errorf("reopening patch file <patch>: %w", err)
+					}
+
+					// server side
+					ll.Info("applying patch")
+					patcher := dirsync.NewFilePatcher(origf, dstf, sum)
+					_, err = patchcodec.NewDecoder(patchf).Decode(patcher.WriteBlock, patcher.Copy)
+					if err != nil {
+						return fmt.Errorf("patching destination <dst>: %w", err)
+					}
+					if err := dstf.Close(); err != nil {
+						return fmt.Errorf("flushing destination <dst>: %w", err)
+					}
+
+					ll.Info("patch applied")
 
 					return nil
 				},

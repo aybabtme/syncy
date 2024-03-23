@@ -2,6 +2,7 @@ package dirsync
 
 import (
 	"context"
+	"io/fs"
 	"testing"
 	"testing/fstest"
 
@@ -9,6 +10,8 @@ import (
 )
 
 func TestTraceSource(t *testing.T) {
+	regFile := fs.FileMode(fs.ModeAppend)
+	require.True(t, regFile.IsRegular())
 	tests := []struct {
 		name string
 		base string
@@ -19,43 +22,47 @@ func TestTraceSource(t *testing.T) {
 			name: "base",
 			base: "root",
 			in: fstest.MapFS{
-				"root/hello/world":       &fstest.MapFile{Data: []byte("hello world")},
-				"root/hello/le_monde":    &fstest.MapFile{Data: []byte("hello le monde")},
-				"root/hello/fr/le_monde": &fstest.MapFile{Data: []byte("hello le monde")},
-				"root/en/world":          &fstest.MapFile{Data: []byte("hello world")},
-				"root/world":             &fstest.MapFile{Data: []byte("hello world")},
+				"root/hello/world":       &fstest.MapFile{Mode: regFile, Data: []byte("hello world")},
+				"root/hello/le_monde":    &fstest.MapFile{Mode: regFile, Data: []byte("hello le monde")},
+				"root/hello/fr/le_monde": &fstest.MapFile{Mode: regFile, Data: []byte("hello le monde")},
+				"root/en/world":          &fstest.MapFile{Mode: regFile, Data: []byte("hello world")},
+				"root/world":             &fstest.MapFile{Mode: regFile, Data: []byte("hello world")},
 			},
 			want: &SourceDir{
 				Name: "root",
-				Mode: 2147484013,
+				Mode: uint32(2147484013),
+				Size: 61,
 				Dirs: []*SourceDir{
 					{
 						Name: "en",
-						Mode: 2147484013,
+						Mode: uint32(2147484013),
+						Size: 11,
 						Files: []*SourceFile{
-							{Name: "world", Mode: 2147484013},
+							{Name: "world", Mode: uint32(regFile), Size: 11},
 						},
 					},
 					{
 						Name: "hello",
-						Mode: 2147484013,
+						Mode: uint32(2147484013),
+						Size: 39,
 						Dirs: []*SourceDir{
 							{
 								Name: "fr",
-								Mode: 2147484013,
+								Mode: uint32(2147484013),
+								Size: 14,
 								Files: []*SourceFile{
-									{Name: "le_monde", Mode: 2147484013},
+									{Name: "le_monde", Mode: uint32(regFile), Size: 14},
 								},
 							},
 						},
 						Files: []*SourceFile{
-							{Name: "le_monde", Mode: 2147484013},
-							{Name: "world", Mode: 2147484013},
+							{Name: "le_monde", Mode: uint32(regFile), Size: 14},
+							{Name: "world", Mode: uint32(regFile), Size: 11},
 						},
 					},
 				},
 				Files: []*SourceFile{
-					{Name: "world", Mode: 2147484013},
+					{Name: "world", Mode: uint32(regFile), Size: 11},
 				},
 			},
 		},

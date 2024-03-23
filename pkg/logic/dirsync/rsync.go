@@ -194,6 +194,7 @@ func (fp *FilePatcher) WriteBlock(idx uint32) (int, error) {
 	return int(n), nil
 }
 
-func (fp *FilePatcher) Write(data []byte) (int, error) {
-	return fp.target.Write(data)
+func (fp *FilePatcher) Copy(r io.Reader) (int, error) {
+	n, err := io.Copy(fp.target, r)
+	return int(n), err
 }
