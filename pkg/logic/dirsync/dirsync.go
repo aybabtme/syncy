@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -37,7 +36,8 @@ func Sync(ctx context.Context, root string, src Source, sink Sink, params Params
 	if err != nil {
 		return fmt.Errorf("getting signatures from sink: %w", err)
 	}
-	createOps, deleteOps, patchOps, err := ComputeTreeDiff(ctx, root, src, sigs)
+
+	createOps, deleteOps, patchOps, err := ComputeTreeDiff(ctx, pathFromString(root), src, sigs)
 	if err != nil {
 		return fmt.Errorf("computing tree diff: %w", err)
 	}
@@ -116,15 +116,15 @@ func withSem(ctx context.Context, sem chan struct{}, fn func()) {
 	}
 }
 
-func ComputeTreeDiff(ctx context.Context, root string, src Source, sinkDir *typesv1.DirSum) ([]CreateOp, []DeleteOp, []PatchOp, error) {
-	srcDir, err := TraceSource(ctx, root, src)
+func ComputeTreeDiff(ctx context.Context, root *typesv1.Path, src Source, sinkDir *typesv1.DirSum) ([]CreateOp, []DeleteOp, []PatchOp, error) {
+	srcDir, err := TraceSource(ctx, pathString(root), src)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("enumerating files on source: %w", err)
 	}
 	return computeDirDiff(ctx, src, root, srcDir, sinkDir)
 }
 
-func computeDirDiff(ctx context.Context, fs fs.FS, path string, src *SourceDir, sink *typesv1.DirSum) ([]CreateOp, []DeleteOp, []PatchOp, error) {
+func computeDirDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *SourceDir, sink *typesv1.DirSum) ([]CreateOp, []DeleteOp, []PatchOp, error) {
 	var (
 		createOps []CreateOp // set(Src)  -  set(Sink) = set to create
 		deleteOps []DeleteOp // set(Src)  ∩  set(Sink) = set to patch
@@ -145,7 +145,7 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path string, src *SourceDir, 
 			continue
 		}
 		// set(Src_dir) ∩ set(Sink_dir)
-		dirPath := filepath.Join(path, srcDir.Name)
+		dirPath := filepathJoin(path, srcDir.Name)
 		cOps, dOps, pOps, err := computeDirDiff(ctx, fs, dirPath, srcDir, sinkDir)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("computing diff for directory %q: %w", dirPath, err)
@@ -170,7 +170,7 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path string, src *SourceDir, 
 	// 2) then do the `Src_file` and `Sink_file`
 	for _, srcFile := range src.Files {
 		// set(Src_file) - set(Sink_file)
-		sinkFile, found := sinkHasFileNamed(sink, srcFile.Name)
+		sinkFile, found := sinkHasFileNamed(sink, srcFile.Info.Name)
 		if !found {
 			createOps = append(createOps, createFileOp(path, srcFile))
 			continue
@@ -196,16 +196,16 @@ func ptr[E any](v E) *E {
 	return &v
 }
 
-func createOpsForDir(path string, dir *SourceDir) []CreateOp {
+func createOpsForDir(path *typesv1.Path, dir *SourceDir) []CreateOp {
 	ops := make([]CreateOp, 0, len(dir.Dirs)+len(dir.Files)+1)
 	ops = append(ops, createDirOp(path, dir))
-	path = filepath.Join(path, dir.Name)
+	path = filepathJoin(path, dir.Name)
 	// create files first, so that if we restart the process, we will
 	// have entire directories to transfer at once, which will help expedite
 	// the search
 	for _, file := range dir.Files {
-		fpath := filepath.Join(path, file.Name)
-		ops = append(ops, CreateOp{Path: fpath})
+		fpath := filepathJoin(path, file.Info.Name)
+		ops = append(ops, CreateOp{Path: fpath, FileInfo: file.Info})
 	}
 	for _, dir := range dir.Dirs {
 		ops = append(ops, createOpsForDir(path, dir)...)
@@ -255,31 +255,29 @@ func srcHasDirNamed(src *SourceDir, name string) bool {
 func srcHasFileNamed(src *SourceDir, name string) bool {
 	// relies on the fact that entries are sorted
 	assert("must be sorted", slices.IsSortedFunc(src.Files, func(a, b *SourceFile) int {
-		return strings.Compare(a.Name, b.Name)
+		return strings.Compare(a.Info.Name, b.Info.Name)
 	}))
 	_, found := slices.BinarySearchFunc(src.Files, name, func(file *SourceFile, name string) int {
-		return strings.Compare(file.Name, name)
+		return strings.Compare(file.Info.Name, name)
 	})
 	return found
 }
 
-func createDirOp(path string, dir *SourceDir) CreateOp {
+func createDirOp(path *typesv1.Path, dir *SourceDir) CreateOp {
 	return CreateOp{
-		Path:  filepath.Join(path, dir.Name),
-		IsDir: true,
-		Mode:  dir.Mode,
+		Path: filepathJoin(path, dir.Name),
 	}
 }
 
-func deleteDirOp(path string, sink *typesv1.DirSum) DeleteOp {
+func deleteDirOp(path *typesv1.Path, sink *typesv1.DirSum) DeleteOp {
 	return DeleteOp{
-		Path: filepath.Join(path, sink.Name),
+		Path: filepathJoin(path, sink.Name),
 	}
 }
 
-func patchDirOp(path string, dirname string, diff *DirPatchOp) PatchOp {
+func patchDirOp(path *typesv1.Path, dirname string, diff *DirPatchOp) PatchOp {
 	return PatchOp{
-		Path: filepath.Join(path, dirname),
+		Path: filepathJoin(path, dirname),
 		Dir:  diff,
 	}
 }
@@ -289,20 +287,20 @@ func makeDirDiff(src *SourceDir, sink *typesv1.DirSum) *DirPatchOp {
 	return out
 }
 
-func createFileOp(path string, file *SourceFile) CreateOp {
+func createFileOp(path *typesv1.Path, file *SourceFile) CreateOp {
 	return CreateOp{
-		Path: filepath.Join(path, file.Name),
-		Mode: file.Mode,
+		Path:     filepathJoin(path, file.Info.Name),
+		FileInfo: file.Info,
 	}
 }
 
-func deleteFileOp(path string, sink *typesv1.FileSum) DeleteOp {
+func deleteFileOp(path *typesv1.Path, sink *typesv1.FileSum) DeleteOp {
 	return DeleteOp{
-		Path: filepath.Join(path, sink.Info.Name),
+		Path: filepathJoin(path, sink.Info.Name),
 	}
 }
 
-func patchFileOp(path string, diff *FilePatchOp) PatchOp {
+func patchFileOp(path *typesv1.Path, diff *FilePatchOp) PatchOp {
 	return PatchOp{
 		Path: path,
 		File: diff,
@@ -315,5 +313,20 @@ func makeFileDiff(src *SourceFile, sink *typesv1.FileSum) *FilePatchOp {
 }
 
 func upload(ctx context.Context, A Source, B Sink, createOp CreateOp) error {
-	panic("todo")
+	path := pathString(createOp.Path)
+	f, err := A.Open(path)
+	if err != nil {
+		return fmt.Errorf("opening %q on source: %w", path, err)
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stating %q on source: %w", path, err)
+	}
+
+	err = B.CreateFile(ctx, createOp.Path, typesv1.FileInfoFromFS(fi), f)
+	if err != nil {
+		return fmt.Errorf("creating file on sink: %w", err)
+	}
+	return nil
 }

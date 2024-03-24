@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
-	"time"
+
+	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 )
 
 type Source interface {
@@ -14,13 +15,12 @@ type Source interface {
 }
 
 type CreateOp struct {
-	Path  string
-	IsDir bool
-	Mode  uint32
+	Path     *typesv1.Path
+	FileInfo *typesv1.FileInfo
 }
 
 type DeleteOp struct {
-	Path string
+	Path *typesv1.Path
 }
 
 type SourceDir struct {
@@ -32,11 +32,7 @@ type SourceDir struct {
 }
 
 type SourceFile struct {
-	Name string
-
-	Size    uint64
-	ModTime time.Time
-	Mode    uint32
+	Info *typesv1.FileInfo
 }
 
 func TraceSource(ctx context.Context, root string, src Source) (*SourceDir, error) {
@@ -77,13 +73,10 @@ func traceSource(ctx context.Context, base string, fi fs.FileInfo, fs Source) (*
 			dir.Size += child.Size
 		} else if fsfi.Mode().IsRegular() {
 			file := &SourceFile{
-				Name:    fsEntry.Name(),
-				Size:    uint64(fsfi.Size()),
-				Mode:    uint32(fsfi.Mode()),
-				ModTime: fsfi.ModTime(),
+				Info: typesv1.FileInfoFromFS(fsfi),
 			}
 			dir.Files = append(dir.Files, file)
-			dir.Size += file.Size
+			dir.Size += file.Info.Size
 		}
 	}
 	return dir, nil

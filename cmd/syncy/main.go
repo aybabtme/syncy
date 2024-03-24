@@ -49,7 +49,7 @@ var (
 		Name:  "server.path",
 		Value: "/",
 	}
-	maxParallelFileStream = cli.UintFlag{
+	maxParallelFileStreamFlag = cli.UintFlag{
 		Name:  "max.parallel_file_stream",
 		Value: 8,
 		Usage: "max number of files being uploaded or patches in parallel at any given time",
@@ -83,7 +83,7 @@ func main() {
 		printerFlag,
 	}
 	app.Commands = []cli.Command{
-		syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag, maxParallelFileStream),
+		syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag, maxParallelFileStreamFlag),
 		statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag),
 		debugCommands(outFlag),
 	}
@@ -99,7 +99,7 @@ func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFla
 	return cli.Command{
 		Name:  "sync",
 		Usage: "sync a path against a backend",
-		Flags: []cli.Flag{serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag},
+		Flags: []cli.Flag{serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag, maxParallelFileStreamFlag, blockSizeFlag},
 		Action: func(cctx *cli.Context) error {
 			path := cctx.Args().First()
 			if !filepath.IsAbs(path) {
@@ -117,10 +117,6 @@ func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFla
 			if err != nil {
 				return fmt.Errorf("creating sync service client: %w", err)
 			}
-			sink := syncclient.ClientAdapter(client)
-
-			maxParallelFileStream := cctx.Uint(maxParallelFileStreamFlag.Name)
-
 			blockSize := cctx.Uint(blockSizeFlag.Name)
 			if blockSize < 128 {
 				return fmt.Errorf("minimum block size is 128")
@@ -128,6 +124,13 @@ func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFla
 			if blockSize >= math.MaxUint32 {
 				return fmt.Errorf("block size must fit in a uint32")
 			}
+
+			sink, err := syncclient.ClientAdapter(client, blockSize)
+			if err != nil {
+				return fmt.Errorf("configuring sync service client: %w", err)
+			}
+
+			maxParallelFileStream := cctx.Uint(maxParallelFileStreamFlag.Name)
 
 			syncParams := dirsync.Params{
 				MaxParallelFileStreams: int(maxParallelFileStream),
@@ -179,7 +182,7 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 						return fmt.Errorf("creating sync service client: %w", err)
 					}
 
-					ll.DebugContext(ctx, "preparing to sync", slog.String("path", path))
+					ll.DebugContext(ctx, "stating file", slog.String("path", path))
 
 					res, err := client.Stat(ctx, connect.NewRequest(&syncv1.StatRequest{
 						Path: &typesv1.Path{
@@ -232,7 +235,7 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 						return fmt.Errorf("creating sync service client: %w", err)
 					}
 
-					ll.DebugContext(ctx, "preparing to sync", slog.String("path", path))
+					ll.DebugContext(ctx, "listing dirs", slog.String("path", path))
 
 					res, err := client.ListDir(ctx, connect.NewRequest(&syncv1.ListDirRequest{
 						Path: &typesv1.Path{

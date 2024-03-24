@@ -67,8 +67,8 @@ type SyncServiceClient interface {
 	// sync
 	// TODO: split in a separate service definition
 	GetSignature(context.Context, *connect.Request[v1.GetSignatureRequest]) (*connect.Response[v1.GetSignatureResponse], error)
-	Create(context.Context, *connect.Request[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error)
-	Patch(context.Context, *connect.Request[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error)
+	Create(context.Context) *connect.ClientStreamForClient[v1.CreateRequest, v1.CreateResponse]
+	Patch(context.Context) *connect.ClientStreamForClient[v1.PatchRequest, v1.PatchResponse]
 	Deletes(context.Context, *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error)
 }
 
@@ -147,13 +147,13 @@ func (c *syncServiceClient) GetSignature(ctx context.Context, req *connect.Reque
 }
 
 // Create calls svc.sync.v1.SyncService.Create.
-func (c *syncServiceClient) Create(ctx context.Context, req *connect.Request[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error) {
-	return c.create.CallUnary(ctx, req)
+func (c *syncServiceClient) Create(ctx context.Context) *connect.ClientStreamForClient[v1.CreateRequest, v1.CreateResponse] {
+	return c.create.CallClientStream(ctx)
 }
 
 // Patch calls svc.sync.v1.SyncService.Patch.
-func (c *syncServiceClient) Patch(ctx context.Context, req *connect.Request[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error) {
-	return c.patch.CallUnary(ctx, req)
+func (c *syncServiceClient) Patch(ctx context.Context) *connect.ClientStreamForClient[v1.PatchRequest, v1.PatchResponse] {
+	return c.patch.CallClientStream(ctx)
 }
 
 // Deletes calls svc.sync.v1.SyncService.Deletes.
@@ -169,8 +169,8 @@ type SyncServiceHandler interface {
 	// sync
 	// TODO: split in a separate service definition
 	GetSignature(context.Context, *connect.Request[v1.GetSignatureRequest]) (*connect.Response[v1.GetSignatureResponse], error)
-	Create(context.Context, *connect.Request[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error)
-	Patch(context.Context, *connect.Request[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error)
+	Create(context.Context, *connect.ClientStream[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error)
+	Patch(context.Context, *connect.ClientStream[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error)
 	Deletes(context.Context, *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error)
 }
 
@@ -198,13 +198,13 @@ func NewSyncServiceHandler(svc SyncServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(syncServiceGetSignatureMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
-	syncServiceCreateHandler := connect.NewUnaryHandler(
+	syncServiceCreateHandler := connect.NewClientStreamHandler(
 		SyncServiceCreateProcedure,
 		svc.Create,
 		connect.WithSchema(syncServiceCreateMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
-	syncServicePatchHandler := connect.NewUnaryHandler(
+	syncServicePatchHandler := connect.NewClientStreamHandler(
 		SyncServicePatchProcedure,
 		svc.Patch,
 		connect.WithSchema(syncServicePatchMethodDescriptor),
@@ -251,11 +251,11 @@ func (UnimplementedSyncServiceHandler) GetSignature(context.Context, *connect.Re
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.GetSignature is not implemented"))
 }
 
-func (UnimplementedSyncServiceHandler) Create(context.Context, *connect.Request[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error) {
+func (UnimplementedSyncServiceHandler) Create(context.Context, *connect.ClientStream[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.Create is not implemented"))
 }
 
-func (UnimplementedSyncServiceHandler) Patch(context.Context, *connect.Request[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error) {
+func (UnimplementedSyncServiceHandler) Patch(context.Context, *connect.ClientStream[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.Patch is not implemented"))
 }
 

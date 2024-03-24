@@ -6,6 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,7 +39,7 @@ func TestTraceSource(t *testing.T) {
 						Mode: uint32(2147484013),
 						Size: 11,
 						Files: []*SourceFile{
-							{Name: "world", Mode: uint32(regFile), Size: 11},
+							{Info: &typesv1.FileInfo{Name: "world", Mode: uint32(regFile), Size: 11}},
 						},
 					},
 					{
@@ -51,18 +52,18 @@ func TestTraceSource(t *testing.T) {
 								Mode: uint32(2147484013),
 								Size: 14,
 								Files: []*SourceFile{
-									{Name: "le_monde", Mode: uint32(regFile), Size: 14},
+									{Info: &typesv1.FileInfo{Name: "le_monde", Mode: uint32(regFile), Size: 14}},
 								},
 							},
 						},
 						Files: []*SourceFile{
-							{Name: "le_monde", Mode: uint32(regFile), Size: 14},
-							{Name: "world", Mode: uint32(regFile), Size: 11},
+							{Info: &typesv1.FileInfo{Name: "le_monde", Mode: uint32(regFile), Size: 14}},
+							{Info: &typesv1.FileInfo{Name: "world", Mode: uint32(regFile), Size: 11}},
 						},
 					},
 				},
 				Files: []*SourceFile{
-					{Name: "world", Mode: uint32(regFile), Size: 11},
+					{Info: &typesv1.FileInfo{Name: "world", Mode: uint32(regFile), Size: 11}},
 				},
 			},
 		},

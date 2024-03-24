@@ -17,8 +17,8 @@ service SyncService {
   // sync
   // TODO: split in a separate service definition
   rpc GetSignature(GetSignatureRequest) returns (GetSignatureResponse) {}
-  rpc Create(CreateRequest) returns (CreateResponse) {}
-  rpc Patch(PatchRequest) returns (PatchResponse) {}
+  rpc Create(stream CreateRequest) returns (CreateResponse) {}
+  rpc Patch(stream PatchRequest) returns (PatchResponse) {}
   rpc Deletes(DeletesRequest) returns (DeletesResponse) {}
 }
 
@@ -63,19 +63,58 @@ message GetSignatureResponse {
   types.v1.DirSum root = 1;
 }
 
+enum Hasher {
+  invalid = 0;
+  blake3_64_256 = 1;
+}
+
 message CreateRequest {
+  message Creating {
+    types.v1.Path path = 1;
+    types.v1.FileInfo info = 2;
+    Hasher hasher = 3;
+  }
+  message Writing {
+    bytes content_block = 1;
+  }
+  message Closing {
+    bytes sum = 1;
+  }
+  oneof step {
+     Creating creating = 1;
+     Writing writing = 2;
+     Closing closing = 3;
+  }
 }
 
 message CreateResponse {
 }
 
 message PatchRequest {
+  message Opening {
+    types.v1.Path path = 1;
+    types.v1.FileInfo info = 2;
+    Hasher hasher = 3;
+    types.v1.FileSum sum = 4;
+  }
+  message Patching {
+    types.v1.FileBlockPatch patch = 1;
+  }
+  message Closing {
+    bytes sum = 1;
+  }
+  oneof step {
+    Opening opening = 1;
+    Patching patching = 2;
+    Closing closing = 3;
+  }
 }
 
 message PatchResponse {
 }
 
 message DeletesRequest {
+  repeated types.v1.Path paths = 1;
 }
 
 message DeletesResponse {

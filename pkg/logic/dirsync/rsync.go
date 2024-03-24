@@ -13,7 +13,7 @@ import (
 )
 
 type PatchOp struct {
-	Path string
+	Path *typesv1.Path
 	Dir  *DirPatchOp
 	File *FilePatchOp
 }
@@ -197,4 +197,8 @@ func (fp *FilePatcher) WriteBlock(idx uint32) (int, error) {
 func (fp *FilePatcher) Copy(r io.Reader) (int, error) {
 	n, err := io.Copy(fp.target, r)
 	return int(n), err
+}
+
+func (fp *FilePatcher) WriteData(p []byte) (int, error) {
+	return fp.target.Write(p)
 }

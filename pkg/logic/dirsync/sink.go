@@ -3,6 +3,7 @@ package dirsync
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
@@ -10,7 +11,7 @@ import (
 
 type Sink interface {
 	GetSignatures(ctx context.Context) (*typesv1.DirSum, error)
-	CreateFile(context.Context, CreateOp) error
+	CreateFile(ctx context.Context, path *typesv1.Path, fi *typesv1.FileInfo, r io.Reader) error
 	DeleteFiles(context.Context, []DeleteOp) error
 	PatchFile(context.Context, PatchOp) error
 }
@@ -23,6 +24,10 @@ type SumDB interface {
 
 func TraceSink(ctx context.Context, root string, sumDB SumDB) (*typesv1.DirSum, error) {
 	return trace(ctx, nil, root, sumDB)
+}
+
+func pathFromString(s string) *typesv1.Path {
+	return &typesv1.Path{Elements: filepath.SplitList(s)}
 }
 
 func filepathJoin(parent *typesv1.Path, name string) *typesv1.Path {
