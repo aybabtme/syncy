@@ -18,10 +18,11 @@ import (
 
 func main() {
 	var (
-		listenIface     = flag.String("listen.iface", "127.0.0.1", "interface to listen on")
-		listenPort      = flag.String("listen.port", "7071", "port to listen on")
-		metadbMySQLAddr = flag.String("metadb.mysql.addr", "root@tcp(127.0.0.1:3306)/syncy", "")
-		blobLocalPath   = flag.String("blob.local.path", "tmp/blobs", "")
+		listenIface      = flag.String("listen.iface", "127.0.0.1", "interface to listen on")
+		listenPort       = flag.String("listen.port", "7071", "port to listen on")
+		metadbMySQLAddr  = flag.String("metadb.mysql.addr", "root@tcp(127.0.0.1:3306)/syncy", "")
+		blobLocalPath    = flag.String("blob.local.path", "tmp/blobs", "")
+		scratchLocalPath = flag.String("scratch.local.path", "/tmp/blobs", "")
 	)
 	flag.Parse()
 
@@ -32,6 +33,7 @@ func main() {
 		*listenPort,
 		*metadbMySQLAddr,
 		*blobLocalPath,
+		*scratchLocalPath,
 	); err != nil {
 		ll.Error("program failed", slog.Any("error", err))
 		os.Exit(1)
@@ -43,13 +45,14 @@ func realMain(
 	listenIface, listenPort string,
 	metadbMySQLAddr string,
 	blobLocalPath string,
+	scratchLocalPath string,
 ) error {
 	var (
 		meta metadb.Metadata
 		blob blobdb.Blob
 	)
 	if metadbMySQLAddr != "" {
-		ll.Info("using MySQL for metadata")
+		ll.Info("using MySQL for metadata", slog.String("dsn", metadbMySQLAddr))
 		db, err := sql.Open("mysql", metadbMySQLAddr)
 		if err != nil {
 			return fmt.Errorf("opening mysql for metadata DB: %w", err)
@@ -61,9 +64,14 @@ func realMain(
 		return fmt.Errorf("no metadata backend provided")
 	}
 	if blobLocalPath != "" {
-		ll.Info("using LocalFS for blobs")
-		fs := os.DirFS(blobLocalPath).(blobdb.FS)
-		blob = blobdb.NewLocalFS(fs)
+		if scratchLocalPath == "" {
+			scratchLocalPath = "/tmp/blobs"
+		}
+		ll.Info("using LocalFS for blobs",
+			slog.String("path", blobLocalPath),
+			slog.String("scratch", scratchLocalPath),
+		)
+		blob = blobdb.NewLocalFS(blobLocalPath, scratchLocalPath)
 	}
 	if blob == nil {
 		return fmt.Errorf("no blob backend provided")

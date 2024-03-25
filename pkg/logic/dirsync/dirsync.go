@@ -37,7 +37,7 @@ func Sync(ctx context.Context, root string, src Source, sink Sink, params Params
 		return fmt.Errorf("getting signatures from sink: %w", err)
 	}
 
-	createOps, deleteOps, patchOps, err := ComputeTreeDiff(ctx, pathFromString(root), src, sigs)
+	createOps, deleteOps, patchOps, err := ComputeTreeDiff(ctx, typesv1.PathFromString(root), src, sigs)
 	if err != nil {
 		return fmt.Errorf("computing tree diff: %w", err)
 	}
@@ -117,7 +117,7 @@ func withSem(ctx context.Context, sem chan struct{}, fn func()) {
 }
 
 func ComputeTreeDiff(ctx context.Context, root *typesv1.Path, src Source, sinkDir *typesv1.DirSum) ([]CreateOp, []DeleteOp, []PatchOp, error) {
-	srcDir, err := TraceSource(ctx, pathString(root), src)
+	srcDir, err := TraceSource(ctx, typesv1.StringFromPath(root), src)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("enumerating files on source: %w", err)
 	}
@@ -145,7 +145,7 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *Sour
 			continue
 		}
 		// set(Src_dir) ∩ set(Sink_dir)
-		dirPath := filepathJoin(path, srcDir.Name)
+		dirPath := typesv1.PathJoin(path, srcDir.Name)
 		cOps, dOps, pOps, err := computeDirDiff(ctx, fs, dirPath, srcDir, sinkDir)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("computing diff for directory %q: %w", dirPath, err)
@@ -199,12 +199,12 @@ func ptr[E any](v E) *E {
 func createOpsForDir(path *typesv1.Path, dir *SourceDir) []CreateOp {
 	ops := make([]CreateOp, 0, len(dir.Dirs)+len(dir.Files)+1)
 	ops = append(ops, createDirOp(path, dir))
-	path = filepathJoin(path, dir.Name)
+	path = typesv1.PathJoin(path, dir.Name)
 	// create files first, so that if we restart the process, we will
 	// have entire directories to transfer at once, which will help expedite
 	// the search
 	for _, file := range dir.Files {
-		fpath := filepathJoin(path, file.Info.Name)
+		fpath := typesv1.PathJoin(path, file.Info.Name)
 		ops = append(ops, CreateOp{Path: fpath, FileInfo: file.Info})
 	}
 	for _, dir := range dir.Dirs {
@@ -265,19 +265,19 @@ func srcHasFileNamed(src *SourceDir, name string) bool {
 
 func createDirOp(path *typesv1.Path, dir *SourceDir) CreateOp {
 	return CreateOp{
-		Path: filepathJoin(path, dir.Name),
+		Path: typesv1.PathJoin(path, dir.Name),
 	}
 }
 
 func deleteDirOp(path *typesv1.Path, sink *typesv1.DirSum) DeleteOp {
 	return DeleteOp{
-		Path: filepathJoin(path, sink.Name),
+		Path: typesv1.PathJoin(path, sink.Name),
 	}
 }
 
 func patchDirOp(path *typesv1.Path, dirname string, diff *DirPatchOp) PatchOp {
 	return PatchOp{
-		Path: filepathJoin(path, dirname),
+		Path: typesv1.PathJoin(path, dirname),
 		Dir:  diff,
 	}
 }
@@ -289,14 +289,14 @@ func makeDirDiff(src *SourceDir, sink *typesv1.DirSum) *DirPatchOp {
 
 func createFileOp(path *typesv1.Path, file *SourceFile) CreateOp {
 	return CreateOp{
-		Path:     filepathJoin(path, file.Info.Name),
+		Path:     typesv1.PathJoin(path, file.Info.Name),
 		FileInfo: file.Info,
 	}
 }
 
 func deleteFileOp(path *typesv1.Path, sink *typesv1.FileSum) DeleteOp {
 	return DeleteOp{
-		Path: filepathJoin(path, sink.Info.Name),
+		Path: typesv1.PathJoin(path, sink.Info.Name),
 	}
 }
 
@@ -313,7 +313,7 @@ func makeFileDiff(src *SourceFile, sink *typesv1.FileSum) *FilePatchOp {
 }
 
 func upload(ctx context.Context, A Source, B Sink, createOp CreateOp) error {
-	path := pathString(createOp.Path)
+	path := typesv1.StringFromPath(createOp.Path)
 	f, err := A.Open(path)
 	if err != nil {
 		return fmt.Errorf("opening %q on source: %w", path, err)

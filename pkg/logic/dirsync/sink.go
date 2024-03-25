@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
 
 	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 )
@@ -18,27 +17,12 @@ type Sink interface {
 
 type SumDB interface {
 	// ListDir returns entries in a dir, ordered by name.
-	ListDir(ctx context.Context, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error)
-	GetFileSum(ctx context.Context, path *typesv1.Path, name string) (*typesv1.FileSum, bool, error)
+	ListDir(ctx context.Context, path string) ([]*typesv1.FileInfo, bool, error)
+	GetFileSum(ctx context.Context, path string) (*typesv1.FileSum, bool, error)
 }
 
 func TraceSink(ctx context.Context, root string, sumDB SumDB) (*typesv1.DirSum, error) {
 	return trace(ctx, nil, root, sumDB)
-}
-
-func pathFromString(s string) *typesv1.Path {
-	return &typesv1.Path{Elements: filepath.SplitList(s)}
-}
-
-func filepathJoin(parent *typesv1.Path, name string) *typesv1.Path {
-	if parent == nil {
-		return &typesv1.Path{Elements: []string{name}}
-	}
-	return &typesv1.Path{Elements: append(parent.Elements, name)}
-}
-
-func pathString(path *typesv1.Path) string {
-	return filepath.Join(path.Elements...)
 }
 
 func trace(ctx context.Context, parent *typesv1.Path, base string, sumDB SumDB) (*typesv1.DirSum, error) {
@@ -47,33 +31,33 @@ func trace(ctx context.Context, parent *typesv1.Path, base string, sumDB SumDB) 
 		Name: base,
 	}
 
-	path := filepathJoin(parent, base)
-	fsEntries, ok, err := sumDB.ListDir(ctx, path)
+	path := typesv1.PathJoin(parent, base)
+	fsEntries, ok, err := sumDB.ListDir(ctx, typesv1.StringFromPath(path))
 	if err != nil {
 		return nil, fmt.Errorf("reading dir: %w", err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("no such dir: %q", pathString(path))
+		return nil, fmt.Errorf("no such dir: %q", typesv1.StringFromPath(path))
 	}
 
 	// `fsEntries`` is guaranteed to be sorted, per `sumDB.ListDir`'s contract
 	for _, fsEntry := range fsEntries {
 		if fsEntry.IsDir {
-			path := filepathJoin(parent, base)
+			path := typesv1.PathJoin(parent, base)
 			child, err := trace(ctx, path, fsEntry.Name, sumDB)
 			if err != nil {
-				return nil, fmt.Errorf("tracing %q, %w", pathString(path), err)
+				return nil, fmt.Errorf("tracing %q, %w", typesv1.StringFromPath(path), err)
 			}
 			dir.Dirs = append(dir.Dirs, child)
 			dir.Size += child.Size
 		} else {
-			path := filepathJoin(parent, base)
-			file, ok, err := sumDB.GetFileSum(ctx, path, fsEntry.Name)
+			path := typesv1.PathJoin(parent, base)
+			file, ok, err := sumDB.GetFileSum(ctx, typesv1.StringFromPath(path))
 			if err != nil {
-				return nil, fmt.Errorf("looking up filesum for file %q in %q: %w", fsEntry.Name, pathString(path), err)
+				return nil, fmt.Errorf("looking up filesum for file %q in %q: %w", fsEntry.Name, typesv1.StringFromPath(path), err)
 			}
 			if !ok {
-				return nil, fmt.Errorf("missing filesum for file %q in %q", fsEntry.Name, pathString(path))
+				return nil, fmt.Errorf("missing filesum for file %q in %q", fsEntry.Name, typesv1.StringFromPath(path))
 			}
 
 			dir.Files = append(dir.Files, file)

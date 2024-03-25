@@ -69,6 +69,7 @@ enum Hasher {
 }
 
 message CreateRequest {
+  types.v1.ReqMeta meta = 1000;
   message Creating {
     types.v1.Path path = 1;
     types.v1.FileInfo info = 2;
@@ -88,9 +89,11 @@ message CreateRequest {
 }
 
 message CreateResponse {
+  types.v1.ResMeta meta = 1000;
 }
 
 message PatchRequest {
+  types.v1.ReqMeta meta = 1000;
   message Opening {
     types.v1.Path path = 1;
     types.v1.FileInfo info = 2;
@@ -111,11 +114,14 @@ message PatchRequest {
 }
 
 message PatchResponse {
+  types.v1.ResMeta meta = 1000;
 }
 
 message DeletesRequest {
+  types.v1.ReqMeta meta = 1000;
   repeated types.v1.Path paths = 1;
 }
 
 message DeletesResponse {
+  types.v1.ResMeta meta = 1000;
 }

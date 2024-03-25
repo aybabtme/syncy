@@ -88,7 +88,7 @@ func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.
 
 	conn := stream.Conn()
 
-	req := new(v1.CreateRequest)
+	var req v1.CreateRequest
 	if err := conn.Receive(&req); err != nil {
 		ll.Error("receiving step message `creating`", slog.Any("err", err))
 		return nil, err
@@ -154,7 +154,7 @@ func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.P
 
 	conn := stream.Conn()
 
-	req := new(v1.PatchRequest)
+	var req v1.PatchRequest
 	if err := conn.Receive(&req); err != nil {
 		ll.Error("receiving step message `opening`", slog.Any("err", err))
 		return nil, err

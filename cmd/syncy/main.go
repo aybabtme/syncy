@@ -637,6 +637,66 @@ func debugCommands(outFlag cli.StringFlag) cli.Command {
 					return nil
 				},
 			},
+			{
+				Name:  "create-file",
+				Usage: "create a file on a remote backend",
+				Flags: []cli.Flag{serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag, blockSizeFlag},
+				Action: func(cctx *cli.Context) error {
+					path := cctx.Args().Get(0)
+					if path == "" {
+						return fmt.Errorf("<path> is required")
+					}
+					ctx, ll, printer, err := makeDeps(cctx)
+					if err != nil {
+						return fmt.Errorf("preparing dependencies: %w", err)
+					}
+					httpClient, err := makeHttpClient(cctx)
+					if err != nil {
+						return fmt.Errorf("creating http client: %w", err)
+					}
+					client, err := makeClient(cctx, httpClient, serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag)
+					if err != nil {
+						return fmt.Errorf("creating sync service client: %w", err)
+					}
+
+					blockSize := cctx.Uint(blockSizeFlag.Name)
+					if blockSize < 128 {
+						return fmt.Errorf("minimum block size is 128")
+					}
+					if blockSize >= math.MaxUint32 {
+						return fmt.Errorf("block size must fit in a uint32")
+					}
+
+					sink, err := syncclient.ClientAdapter(client, blockSize)
+					if err != nil {
+						return fmt.Errorf("configuring sync service client: %w", err)
+					}
+
+					ll.InfoContext(ctx, "creating file", slog.String("path", path))
+					f, err := os.Open(path)
+					if err != nil {
+						return fmt.Errorf("opening file at <path>: %w", err)
+					}
+					defer f.Close()
+					fi, err := f.Stat()
+					if err != nil {
+						return fmt.Errorf("stating file at <path>: %w", err)
+					}
+
+					err = sink.CreateFile(
+						ctx,
+						typesv1.PathFromString(path),
+						typesv1.FileInfoFromFS(fi),
+						f,
+					)
+					if err != nil {
+						return fmt.Errorf("creating file at on remote: %w", err)
+					}
+
+					printer.Emit("done")
+					return nil
+				},
+			},
 		},
 	}
 }
