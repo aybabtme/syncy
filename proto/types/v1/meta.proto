@@ -6,7 +6,7 @@ option go_package = "types/v1;typesv1";
 
 message ReqMeta {
   string account_id = 1;
-  string project_name = 2;
+  string project_id = 2;
 }
 
 message ResMeta {

@@ -17,12 +17,12 @@ import (
 
 type Metadata interface {
 	CreateAccount(ctx context.Context, accountName string) (accountPublicID string, err error)
-	CreateProject(ctx context.Context, accountPublicID, projectName string) error
-	Stat(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path) (*typesv1.FileInfo, bool, error)
-	ListDir(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error)
-	GetSignature(ctx context.Context, accountPublicID, projectName string) (*typesv1.DirSum, error)
-	CreatePathTx(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path, fi *typesv1.FileInfo, fn FileSaveAction) error
-	PatchPathTx(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path, fi *typesv1.FileInfo, sum *typesv1.FileSum, fn FileSaveAction) error
+	CreateProject(ctx context.Context, accountPublicID, projectName string, createBlobPath func(path string) error) (projectPublicID string, err error)
+	Stat(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) (*typesv1.FileInfo, bool, error)
+	ListDir(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error)
+	GetSignature(ctx context.Context, accountPublicID, projectPublicID string) (*typesv1.DirSum, error)
+	CreatePathTx(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, fn FileSaveAction) error
+	PatchPathTx(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, sum *typesv1.FileSum, fn FileSaveAction) error
 }
 
 type FileSaveAction func(filepath string) (blake3_64_256_sum []byte, err error)
@@ -48,26 +48,37 @@ func (ms *MySQL) CreateAccount(ctx context.Context, accountName string) (account
 	return accountPublicID, nil
 }
 
-func (ms *MySQL) CreateProject(ctx context.Context, accountPublicID, projectName string) error {
-	accountInternalID, ok, err := findAccountID(ctx, ms.db, accountPublicID)
-	if err != nil {
-		return fmt.Errorf("looking up account: %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("account doesn't exist, create it first")
-	}
+func (ms *MySQL) CreateProject(ctx context.Context, accountPublicID, projectName string, createBlobPath func(path string) error) (projectPublicID string, err error) {
+	projectPublicID = nanoid.Must(12)
+	return projectPublicID, withTx(ctx, ms.db, func(tx *sql.Tx) error {
+		accountInternalID, ok, err := findAccountID(ctx, tx, accountPublicID)
+		if err != nil {
+			return fmt.Errorf("looking up account: %w", err)
+		}
+		if !ok {
+			return fmt.Errorf("account doesn't exist, create it first")
+		}
 
-	_, err = ms.db.ExecContext(ctx, "INSERT INTO projects (`account_id`, `name`) VALUES (?, ?)",
-		accountInternalID, projectName,
-	)
-	if err != nil {
-		return fmt.Errorf("inserting project: %w", err)
-	}
-	return nil
+		_, err = tx.ExecContext(ctx, "INSERT INTO projects (`account_id`, `name`, `public_id`) VALUES (?, ?, ?)",
+			accountInternalID, projectName, projectPublicID,
+		)
+		if err != nil {
+			return fmt.Errorf("inserting project: %w", err)
+		}
+
+		return createBlobPath(filepathName(accountPublicID, projectPublicID, nil, nil))
+	})
 }
 
-func (ms *MySQL) Stat(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path) (*typesv1.FileInfo, bool, error) {
-	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectName)
+func filepathName(accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo) string {
+	if path == nil {
+		return filepath.Join(accountPublicID, projectPublicID)
+	}
+	return filepath.Join(accountPublicID, projectPublicID, filepath.Join(path.Elements...), fi.Name)
+}
+
+func (ms *MySQL) Stat(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) (*typesv1.FileInfo, bool, error) {
+	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectPublicID)
 	if err != nil || !ok {
 		return nil, false, err
 	}
@@ -87,8 +98,8 @@ func (ms *MySQL) Stat(ctx context.Context, accountPublicID, projectName string, 
 	return getFileInfo(ctx, ms.db, projectID, parentDirID, filename)
 }
 
-func (ms *MySQL) ListDir(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error) {
-	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectName)
+func (ms *MySQL) ListDir(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error) {
+	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectPublicID)
 	if err != nil || !ok {
 		return nil, false, err
 	}
@@ -296,16 +307,12 @@ func scanFileInfo(row scanner) (*typesv1.FileInfo, bool, error) {
 	return fi, true, nil
 }
 
-func (ms *MySQL) GetSignature(ctx context.Context, accountPublicID, projectName string) (*typesv1.DirSum, error) {
+func (ms *MySQL) GetSignature(ctx context.Context, accountPublicID, projectPublicID string) (*typesv1.DirSum, error) {
 	panic("todo")
 }
 
-func filepathName(accountPublicID, projectName string, path *typesv1.Path) string {
-	return filepath.Join(accountPublicID, projectName, filepath.Join(path.Elements...))
-}
-
-func (ms *MySQL) CreatePathTx(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path, fi *typesv1.FileInfo, fn FileSaveAction) error {
-	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectName)
+func (ms *MySQL) CreatePathTx(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, fn FileSaveAction) error {
+	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectPublicID)
 	if err != nil {
 		return fmt.Errorf("finding project ID: %w", err)
 	}
@@ -313,7 +320,7 @@ func (ms *MySQL) CreatePathTx(ctx context.Context, accountPublicID, projectName 
 		return fmt.Errorf("project doesn't exist, create it first")
 	}
 
-	filepath := filepathName(accountPublicID, projectName, path)
+	filepath := filepathName(accountPublicID, projectPublicID, path, fi)
 
 	var pendingFileID uint64
 	err = withTx(ctx, ms.db, func(tx *sql.Tx) error {
@@ -331,10 +338,13 @@ func (ms *MySQL) CreatePathTx(ctx context.Context, accountPublicID, projectName 
 		if fi.IsDir {
 			_, err := fn(filepath)
 			if err != nil {
-				return err
+				return fmt.Errorf("creating filepath in blob: %w", err)
 			}
 			_, err = createDir(ctx, tx, projectID, parentDirID, fi.Name, fi)
-			return err
+			if err != nil {
+				return fmt.Errorf("creating dir in mysql: %w", err)
+			}
+			return nil
 		}
 
 		pendingFileID, err = createPendingFile(ctx, tx, projectID, parentDirID, fi.Name, fi)
@@ -344,7 +354,7 @@ func (ms *MySQL) CreatePathTx(ctx context.Context, accountPublicID, projectName 
 		return nil
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("in transaction: %w", err)
 	}
 	if fi.IsDir {
 		return nil // we're done
@@ -357,8 +367,8 @@ func (ms *MySQL) CreatePathTx(ctx context.Context, accountPublicID, projectName 
 	return finishPendingFile(ctx, ms.db, pendingFileID, sum)
 }
 
-func (ms *MySQL) PatchPathTx(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path, fi *typesv1.FileInfo, sum *typesv1.FileSum, fn FileSaveAction) error {
-	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectName)
+func (ms *MySQL) PatchPathTx(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, sum *typesv1.FileSum, fn FileSaveAction) error {
+	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectPublicID)
 	if err != nil {
 		return fmt.Errorf("finding project ID: %w", err)
 	}
@@ -366,7 +376,7 @@ func (ms *MySQL) PatchPathTx(ctx context.Context, accountPublicID, projectName s
 		return fmt.Errorf("project doesn't exist, create it first")
 	}
 
-	filepath := filepathName(accountPublicID, projectName, path)
+	filepath := filepathName(accountPublicID, projectPublicID, path, fi)
 
 	var pendingFileID uint64
 	err = withTx(ctx, ms.db, func(tx *sql.Tx) error {
@@ -385,9 +395,13 @@ func (ms *MySQL) PatchPathTx(ctx context.Context, accountPublicID, projectName s
 			// we just update metadata so there's no need to mark anything pending
 			_, err := fn(filepath)
 			if err != nil {
-				return err
+				return fmt.Errorf("updating filepath in blob: 5w")
 			}
-			return updateDirInfo(ctx, tx, projectID, parentDirID, fi.Name, fi)
+			err = updateDirInfo(ctx, tx, projectID, parentDirID, fi.Name, fi)
+			if err != nil {
+				return fmt.Errorf("updating dir info in mysql: %w", err)
+			}
+			return nil
 		}
 
 		fileID, ok, err := getFileID(ctx, tx, projectID, parentDirID, fi.Name)
@@ -405,17 +419,21 @@ func (ms *MySQL) PatchPathTx(ctx context.Context, accountPublicID, projectName s
 		return nil
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("in transaction: %w", err)
 	}
 	if fi.IsDir {
 		return nil // we're done
 	}
 	blake3sum, err := fn(filepath)
 	if err != nil {
-		return err
+		return fmt.Errorf("creating file in blob: %w", err)
 	}
 
-	return finishPendingFile(ctx, ms.db, pendingFileID, blake3sum)
+	err = finishPendingPatchFile(ctx, ms.db, pendingFileID, fi, blake3sum)
+	if err != nil {
+		return fmt.Errorf("finishing pending file: %w", err)
+	}
+	return nil
 }
 
 func createPendingFile(ctx context.Context, execer execer, projectID uint64, parentDirID *uint64, name string, fi *typesv1.FileInfo) (uint64, error) {
@@ -429,6 +447,7 @@ func createPendingFile(ctx context.Context, execer execer, projectID uint64, par
 			projectID,
 			parentDirID,
 			name,
+			fi.Size,
 			fi.ModTime.AsTime().Unix(),
 			fi.Mode,
 		)
@@ -436,8 +455,8 @@ func createPendingFile(ctx context.Context, execer execer, projectID uint64, par
 		res, err = execer.ExecContext(ctx,
 			"INSERT INTO files (`project_id`, `name`, `size`, `mod_time`, `mode`) VALUES (?,?,?,?,?)",
 			projectID,
-			parentDirID,
 			name,
+			fi.Size,
 			fi.ModTime.AsTime().Unix(),
 			fi.Mode,
 		)
@@ -474,7 +493,7 @@ func markFileAsPending(ctx context.Context, execer execer, projectID uint64, fil
 
 func finishPendingFile(ctx context.Context, db *sql.DB, pendingFileID uint64, blake3_64_256_sum []byte) error {
 	return withTx(ctx, db, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, "UPDATE files SET blake3_64_256_sum=? WHERE file_id = ? LIMIT 1", pendingFileID)
+		_, err := tx.ExecContext(ctx, "UPDATE files SET blake3_64_256_sum=? WHERE file_id = ? LIMIT 1", blake3_64_256_sum, pendingFileID)
 		if err != nil {
 			return fmt.Errorf("updating file with blake3_64_256_sum: %w", err)
 		}
@@ -499,6 +518,7 @@ func finishPendingPatchFile(ctx context.Context, db *sql.DB, pendingFileID uint6
 			fi.Size,
 			fi.ModTime.AsTime().Unix(),
 			fi.Mode,
+			blake3_64_256_sum,
 			pendingFileID,
 		)
 		if err != nil {
@@ -525,6 +545,7 @@ func updateDirInfo(ctx context.Context, execer execer, projectID uint64, parentD
 				"	`parent_id` = ? AND\n"+
 				"	`name` = ?\n"+
 				"LIMIT 1",
+			fi.Name, fi.ModTime.AsTime().Unix(), fi.Mode,
 			projectID, *parentDirID, name,
 		)
 	} else {
@@ -538,6 +559,7 @@ func updateDirInfo(ctx context.Context, execer execer, projectID uint64, parentD
 				"	`parent_id` IS NULL AND\n"+
 				"	`name` = ?\n"+
 				"LIMIT 1",
+			fi.Name, fi.ModTime.AsTime().Unix(), fi.Mode,
 			projectID, name,
 		)
 	}
@@ -558,16 +580,16 @@ func findAccountID(ctx context.Context, querier querier, accountPublicID string)
 	return accountID, true, nil
 }
 
-func findProjectID(ctx context.Context, querier querier, accountPublicID, projectName string) (uint64, bool, error) {
+func findProjectID(ctx context.Context, querier querier, accountPublicID, projectPublicID string) (uint64, bool, error) {
 	var projectID uint64
 	err := querier.QueryRowContext(ctx,
 		"SELECT projects.`id` FROM projects\n"+
 			"JOIN accounts ON (accounts.`id` = projects.`account_id`)\n"+
 			"WHERE accounts.`public_id` = ? AND\n"+
-			"      projects.`name` = ?\n"+
+			"      projects.`public_id` = ?\n"+
 			"LIMIT 1",
 		accountPublicID,
-		projectName,
+		projectPublicID,
 	).Scan(&projectID)
 	if err == sql.ErrNoRows {
 		return 0, false, nil
@@ -596,6 +618,7 @@ func createDir(ctx context.Context,
 		err error
 	)
 	if parentDirID != nil {
+
 		res, err = execer.ExecContext(ctx,
 			"INSERT INTO dirs (`project_id`, `parent_id`, `name`, `mod_time`, `mode`) VALUES (?, ?, ?, ?, ?)",
 			projectID,

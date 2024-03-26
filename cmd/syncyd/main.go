@@ -50,6 +50,7 @@ func realMain(
 	var (
 		meta metadb.Metadata
 		blob blobdb.Blob
+		err  error
 	)
 	if metadbMySQLAddr != "" {
 		ll.Info("using MySQL for metadata", slog.String("dsn", metadbMySQLAddr))
@@ -71,7 +72,10 @@ func realMain(
 			slog.String("path", blobLocalPath),
 			slog.String("scratch", scratchLocalPath),
 		)
-		blob = blobdb.NewLocalFS(blobLocalPath, scratchLocalPath)
+		blob, err = blobdb.NewLocalFS(blobLocalPath, scratchLocalPath)
+	}
+	if err != nil {
+		return fmt.Errorf("creating blob backend: %w", err)
 	}
 	if blob == nil {
 		return fmt.Errorf("no blob backend provided")

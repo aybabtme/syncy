@@ -37,9 +37,9 @@ var (
 		Name:   "account_id",
 		EnvVar: "SYNCY_ACCOUNT_ID",
 	}
-	projectNameFlag = cli.StringFlag{
-		Name:   "project",
-		EnvVar: "SYNCY_PROJECT",
+	projectIDFlag = cli.StringFlag{
+		Name:   "project_id",
+		EnvVar: "SYNCY_PROJECT_ID",
 	}
 	serverSchemeFlag = cli.StringFlag{
 		Name:  "server.schema",
@@ -94,7 +94,7 @@ func main() {
 	app.Flags = []cli.Flag{
 		printerFlag,
 		accountIDFlag,
-		projectNameFlag,
+		projectIDFlag,
 	}
 	app.Commands = []cli.Command{
 		syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag, maxParallelFileStreamFlag),
@@ -326,7 +326,7 @@ func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 					if project == "" {
 						return fmt.Errorf("<project> is required")
 					}
-					ctx, ll, _, err := makeDeps(cctx)
+					ctx, ll, printer, err := makeDeps(cctx)
 					if err != nil {
 						return fmt.Errorf("preparing dependencies: %w", err)
 					}
@@ -339,14 +339,16 @@ func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 						return fmt.Errorf("creating sync service client: %w", err)
 					}
 					ll.InfoContext(ctx, "creating project")
-					_, err = client.CreateProject(ctx, connect.NewRequest(&syncv1.CreateProjectRequest{
+					res, err := client.CreateProject(ctx, connect.NewRequest(&syncv1.CreateProjectRequest{
 						AccountId:   meta.AccountId,
 						ProjectName: project,
 					}))
 					if err != nil {
 						return fmt.Errorf("creating project: %w", err)
 					}
-					ll.InfoContext(ctx, "project created, set the project (SYNCY_PROJECT) for future requests")
+					ll.InfoContext(ctx, "project created, set the project (SYNCY_PROJECT_ID) for future requests")
+
+					printer.Emit(map[string]string{"project_id": res.Msg.GetProjectId()})
 					return nil
 				},
 			},
@@ -373,16 +375,13 @@ func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 					}
 
 					scratch := cctx.String(scratchLocalPath.Name)
-					if err := createDirIfNoExists(scratch); err != nil {
-						return fmt.Errorf("preparing scratch path: %w", err)
-					}
 					dir := filepath.Dir(path)
-					if err := createDirIfNoExists(dir); err != nil {
-						return fmt.Errorf("preparing dir path: %w", err)
-					}
 
 					root := filepath.Base(path)
-					blob := blobdb.NewLocalFS(dir, scratch)
+					blob, err := blobdb.NewLocalFS(dir, scratch)
+					if err != nil {
+						return fmt.Errorf("creating blob backend: %w", err)
+					}
 
 					ll.Info("starting trace of filesystem from path", slog.String("path", path))
 					sum, err := dirsync.TraceSink(ctx, root, blob)
@@ -732,10 +731,19 @@ func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 				Usage: "create a file on a remote backend",
 				Flags: []cli.Flag{serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag, blockSizeFlag},
 				Action: func(cctx *cli.Context) error {
-					path := cctx.Args().Get(0)
+					base := cctx.Args().Get(0)
+					if base == "" {
+						return fmt.Errorf("<base> is required")
+					}
+
+					path := cctx.Args().Get(1)
 					if path == "" {
 						return fmt.Errorf("<path> is required")
 					}
+					if err := os.Chdir(base); err != nil {
+						return fmt.Errorf("can't chdir to %q: %w", base, err)
+					}
+
 					ctx, ll, printer, err := makeDeps(cctx)
 					if err != nil {
 						return fmt.Errorf("preparing dependencies: %w", err)
@@ -774,6 +782,13 @@ func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 					}
 
 					dir := filepath.Dir(path)
+					if dir == "." {
+						dir = ""
+					}
+					dir, err = filepath.Rel(base, dir)
+					if err != nil {
+						return fmt.Errorf("preparing request: %w", err)
+					}
 
 					err = sink.CreateFile(
 						ctx,
@@ -856,26 +871,11 @@ func makeClient(
 		Path: cctx.String(serverPathFlag.Name),
 	}
 	req := &typesv1.ReqMeta{
-		AccountId:   stringFlagOrEnvVar(cctx, accountIDFlag),
-		ProjectName: stringFlagOrEnvVar(cctx, projectNameFlag),
+		AccountId: stringFlagOrEnvVar(cctx, accountIDFlag),
+		ProjectId: stringFlagOrEnvVar(cctx, projectIDFlag),
 	}
-	println("account id is " + req.AccountId)
-	println("project name is " + req.ProjectName)
 
 	return syncv1connect.NewSyncServiceClient(httpClient, baseURL.String()), req, nil
-}
-
-func createDirIfNoExists(path string) error {
-	f, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		return os.MkdirAll(path, 0755)
-	} else if !f.IsDir() {
-		return fmt.Errorf("%q is not a dir", path)
-	}
-	if err != nil {
-		return fmt.Errorf("preparing scratch path: %w", err)
-	}
-	return nil
 }
 
 func stringFlagOrEnvVar(cctx *cli.Context, flag cli.StringFlag) string {

@@ -19,6 +19,7 @@ CREATE TABLE projects (
     `id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     `account_id` BIGINT NOT NULL,
     `name` VARCHAR(255) NOT NULL,
+    `public_id` VARCHAR(255) NOT NULL,
     `created_at` TIMESTAMP DEFAULT NOW(),
     UNIQUE (`account_id`, `name`)
 );
@@ -29,7 +30,7 @@ CREATE TABLE dirs (
     `parent_id` BIGINT,
     `name` VARCHAR(255) NOT NULL,
     `mod_time` BIGINT NOT NULL,
-    `mode` INT NOT NULL,
+    `mode` INT UNSIGNED NOT NULL,
     UNIQUE (`project_id`, `parent_id`, `name`)
 );
 
@@ -41,9 +42,9 @@ CREATE TABLE files (
 
     `size` BIGINT NOT NULL,
     `mod_time` BIGINT NOT NULL,
-    `mode` INT NOT NULL,
+    `mode` INT UNSIGNED NOT NULL,
 
-    `blake3_64_256_sum` BINARY(32) NOT NULL,
+    `blake3_64_256_sum` BINARY(32) DEFAULT NULL,
 
     UNIQUE (`project_id`, `dir_id`, `name`)
 );

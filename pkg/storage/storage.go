@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 
 	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 	"github.com/aybabtme/syncy/pkg/storage/blobdb"
@@ -10,7 +12,7 @@ import (
 
 type DB interface {
 	CreateAccount(ctx context.Context, accountName string) (accountPublicID string, err error)
-	CreateProject(ctx context.Context, accountPublicID, projectName string) error
+	CreateProject(ctx context.Context, accountPublicID, projectName string) (projectPublicID string, err error)
 	Stat(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path) (*typesv1.FileInfo, bool, error)
 	ListDir(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error)
 	GetSignature(ctx context.Context, accountPublicID, projectName string) (*typesv1.DirSum, error)
@@ -33,19 +35,35 @@ func NewState(meta metadb.Metadata, blob blobdb.Blob) *State {
 	return &State{meta: meta, blob: blob}
 }
 
+var (
+	AccountNameRegexp = regexp.MustCompile(`[a-zA-Z0-9-+_]+`)
+	ProjectNameRegexp = regexp.MustCompile(`[a-zA-Z0-9-+_]+`)
+)
+
 func (state *State) CreateAccount(ctx context.Context, accountName string) (accountPublicID string, err error) {
+	if !AccountNameRegexp.MatchString(accountName) {
+		return "", fmt.Errorf("invalid account name: doesn't match regexp %s", AccountNameRegexp.String())
+	}
 	return state.meta.CreateAccount(ctx, accountName)
 }
-func (state *State) CreateProject(ctx context.Context, accountPublicID, projectName string) error {
-	return state.meta.CreateProject(ctx, accountPublicID, projectName)
+
+func (state *State) CreateProject(ctx context.Context, accountPublicID, projectName string) (projectPublicID string, err error) {
+	if !ProjectNameRegexp.MatchString(projectName) {
+		return "", fmt.Errorf("invalid project name: doesn't match regexp %s", ProjectNameRegexp.String())
+	}
+	return state.meta.CreateProject(ctx, accountPublicID, projectName, func(path string) error {
+		return state.blob.CreateProjectRootPath(ctx, path)
+	})
 }
 
 func (state *State) Stat(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path) (*typesv1.FileInfo, bool, error) {
 	return state.meta.Stat(ctx, accountPublicID, projectName, path)
 }
+
 func (state *State) ListDir(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error) {
 	return state.meta.ListDir(ctx, accountPublicID, projectName, path)
 }
+
 func (state *State) GetSignature(ctx context.Context, accountPublicID, projectName string) (*typesv1.DirSum, error) {
 	return state.meta.GetSignature(ctx, accountPublicID, projectName)
 }

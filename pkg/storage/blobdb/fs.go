@@ -2,6 +2,7 @@ package blobdb
 
 import (
 	"context"
+	"encoding/base32"
 	"fmt"
 	"io"
 	"io/fs"
@@ -18,6 +19,7 @@ type Blob interface {
 	Stat(context.Context, string) (*typesv1.FileInfo, bool, error)
 	ListDir(context.Context, string) ([]*typesv1.FileInfo, bool, error)
 	GetSignature(ctx context.Context) (*typesv1.DirSum, error)
+	CreateProjectRootPath(ctx context.Context, projectDir string) error
 	CreatePath(ctx context.Context, filename string, isDir bool, fn CreateFunc) (blake3_64_256_sum []byte, err error)
 	PatchPath(ctx context.Context, filename string, isDir bool, sum *typesv1.FileSum, fn PatchFunc) (blake3_64_256_sum []byte, err error)
 	DeletePaths(ctx context.Context, filenames []string) error
@@ -41,8 +43,14 @@ type FS interface {
 // NewLocalFS creates a `Blob` that works against a local filesystem.
 // `root` is where files are stored.
 // `scratch` is where files being constructed are stored.
-func NewLocalFS(root, scratch string) *LocalFS {
-	return &LocalFS{root: root, scratch: scratch, locks: make(map[string]struct{})}
+func NewLocalFS(root, scratch string) (*LocalFS, error) {
+	if err := os.MkdirAll(root, 0755); err != nil && err != os.ErrExist {
+		return nil, fmt.Errorf("creating scratch dir: %w", err)
+	}
+	if err := os.MkdirAll(scratch, 0755); err != nil && err != os.ErrExist {
+		return nil, fmt.Errorf("creating scratch dir: %w", err)
+	}
+	return &LocalFS{root: root, scratch: scratch, locks: make(map[string]struct{})}, nil
 }
 
 func (lfs *LocalFS) Stat(ctx context.Context, path string) (*typesv1.FileInfo, bool, error) {
@@ -101,13 +109,30 @@ func (lfs *LocalFS) GetFileSum(ctx context.Context, filename string) (*typesv1.F
 	return fs, true, nil
 }
 
+func (lfs *LocalFS) CreateProjectRootPath(ctx context.Context, path string) error {
+	endPath := filepath.Join(lfs.root, path)
+
+	unlock, locked := lfs.takeLock(path)
+	if !locked {
+		return fmt.Errorf("path is already locked by another request, try again later")
+	}
+	defer unlock()
+
+	err := os.MkdirAll(endPath, 0755)
+	if err != nil {
+		return fmt.Errorf("creating dir: %w", err)
+	}
+
+	return nil
+}
+
 type CreateFunc func(w io.Writer) (blake3_64_256_sum []byte, err error)
 
 func (lfs *LocalFS) CreatePath(ctx context.Context, path string, isDir bool, fn CreateFunc) (blake3_64_256_sum []byte, err error) {
 	endPath := filepath.Join(lfs.root, path)
 
 	unlock, locked := lfs.takeLock(path)
-	if locked {
+	if !locked {
 		return nil, fmt.Errorf("path is already locked by another request, try again later")
 	}
 	defer unlock()
@@ -117,7 +142,7 @@ func (lfs *LocalFS) CreatePath(ctx context.Context, path string, isDir bool, fn 
 		// requester dictate our local file access policies
 		err := os.Mkdir(endPath, 0755)
 		if err != nil {
-			return nil, fmt.Errorf("creating dir: %w", err)
+			return nil, fmt.Errorf("creating dir %q: %w", endPath, err)
 		}
 		return nil, nil
 	}
@@ -136,7 +161,7 @@ func (lfs *LocalFS) PatchPath(ctx context.Context, path string, isDir bool, want
 	endPath := filepath.Join(lfs.root, path)
 
 	unlock, locked := lfs.takeLock(path)
-	if locked {
+	if !locked {
 		return nil, fmt.Errorf("path is already locked by another request, try again later")
 	}
 	defer unlock()
@@ -165,7 +190,8 @@ func (lfs *LocalFS) PatchPath(ctx context.Context, path string, isDir bool, want
 
 func (lfs *LocalFS) withAtomicFileSwap(filename string, fn CreateFunc) (blake3_64_256_sum []byte, _ error) {
 	endPath := filepath.Join(lfs.root, filename)
-	tmpFile, err := os.CreateTemp(lfs.scratch, filename)
+	tmpFilename := base32.HexEncoding.EncodeToString([]byte(filename))
+	tmpFile, err := os.CreateTemp(lfs.scratch, tmpFilename)
 	if err != nil {
 		return nil, fmt.Errorf("creating temp file in scratch location: %w", err)
 	}

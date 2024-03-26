@@ -53,20 +53,20 @@ func (hdl *Handler) CreateProject(ctx context.Context, req *connect.Request[v1.C
 	if req.Msg.ProjectName == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("missing project name"))
 	}
-	err := hdl.db.CreateProject(ctx, req.Msg.AccountId, req.Msg.ProjectName)
+	publicID, err := hdl.db.CreateProject(ctx, req.Msg.AccountId, req.Msg.ProjectName)
 	if err != nil {
 		ll.ErrorContext(ctx, "creating project in DB", slog.String("err", err.Error()))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
 	}
-	return connect.NewResponse(&v1.CreateProjectResponse{}), nil
+	return connect.NewResponse(&v1.CreateProjectResponse{ProjectId: publicID}), nil
 }
 
 func (hdl *Handler) Stat(ctx context.Context, req *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error) {
 	ll := hdl.ll.WithGroup("Stat")
 	ll.InfoContext(ctx, "received req")
 	// TODO: validate this
-	accountPubID, projectName := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectName
-	fi, ok, err := hdl.db.Stat(ctx, accountPubID, projectName, req.Msg.GetPath())
+	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
+	fi, ok, err := hdl.db.Stat(ctx, accountPubID, projectID, req.Msg.GetPath())
 	if err != nil {
 		ll.ErrorContext(ctx, "getting stat from DB", slog.String("err", err.Error()))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
@@ -85,8 +85,8 @@ func (hdl *Handler) ListDir(ctx context.Context, req *connect.Request[v1.ListDir
 	ll.InfoContext(ctx, "received req")
 
 	// TODO: validate this
-	accountPubID, projectName := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectName
-	dirEntries, ok, err := hdl.db.ListDir(ctx, accountPubID, projectName, req.Msg.GetPath())
+	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
+	dirEntries, ok, err := hdl.db.ListDir(ctx, accountPubID, projectID, req.Msg.GetPath())
 	if err != nil {
 		ll.ErrorContext(ctx, "getting listdir from DB", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
@@ -104,8 +104,8 @@ func (hdl *Handler) GetSignature(ctx context.Context, req *connect.Request[v1.Ge
 	ll := hdl.ll.WithGroup("GetSignature")
 	ll.InfoContext(ctx, "received req")
 
-	accountPubID, projectName := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectName
-	sig, err := hdl.db.GetSignature(ctx, accountPubID, projectName)
+	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
+	sig, err := hdl.db.GetSignature(ctx, accountPubID, projectID)
 	if err != nil {
 		ll.ErrorContext(ctx, "getting signature from DB", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
@@ -139,8 +139,8 @@ func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown hasher: %s", creating.Hasher.String()))
 	}
 	ll.InfoContext(ctx, "creating path")
-	accountPubID, projectName := req.GetMeta().AccountId, req.GetMeta().ProjectName
-	err := hdl.db.CreatePath(ctx, accountPubID, projectName, creating.Path, creating.Info, func(w io.Writer) (blake3_64_256_sum []byte, _ error) {
+	accountPubID, projectID := req.GetMeta().AccountId, req.GetMeta().ProjectId
+	err := hdl.db.CreatePath(ctx, accountPubID, projectID, creating.Path, creating.Info, func(w io.Writer) (blake3_64_256_sum []byte, _ error) {
 		tgt := io.MultiWriter(w, h)
 		var err error
 		for {
@@ -178,7 +178,7 @@ func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.
 	})
 	if err != nil {
 		ll.Error("creating path", slog.Any("err", err))
-		return nil, err
+		return nil, fmt.Errorf("failed to create path")
 	}
 	return connect.NewResponse(&v1.CreateResponse{}), nil
 }
@@ -206,8 +206,8 @@ func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.P
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown hasher: %s", opening.Hasher.String()))
 	}
 	ll.InfoContext(ctx, "opening path for patching")
-	accountPubID, projectName := req.GetMeta().AccountId, req.GetMeta().ProjectName
-	err := hdl.db.PatchPath(ctx, accountPubID, projectName, opening.Path, opening.Info, opening.Sum, func(orig io.ReadSeeker, w io.Writer) (blake3_64_256_sum []byte, _ error) {
+	accountPubID, projectID := req.GetMeta().AccountId, req.GetMeta().ProjectId
+	err := hdl.db.PatchPath(ctx, accountPubID, projectID, opening.Path, opening.Info, opening.Sum, func(orig io.ReadSeeker, w io.Writer) (blake3_64_256_sum []byte, _ error) {
 		tgt := io.MultiWriter(w, h)
 
 		patcher := dirsync.NewFilePatcher(orig, tgt, opening.Sum)
@@ -266,8 +266,8 @@ func (hdl *Handler) Deletes(ctx context.Context, req *connect.Request[v1.Deletes
 	ll := hdl.ll.WithGroup("Deletes")
 	ll.InfoContext(ctx, "received req")
 
-	accountPubID, projectName := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectName
-	if err := hdl.db.DeletePaths(ctx, accountPubID, projectName, req.Msg.Paths); err != nil {
+	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
+	if err := hdl.db.DeletePaths(ctx, accountPubID, projectID, req.Msg.Paths); err != nil {
 		ll.ErrorContext(ctx, "couldn't delete paths", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("unable to delete paths"))
 	}

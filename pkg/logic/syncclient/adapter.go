@@ -50,15 +50,7 @@ func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.F
 		}
 	}()
 
-	blockSize := sk.createBlockSize
-	if blockSize > uint(fi.Size) {
-		blockSize = uint(fi.Size)
-	}
-
 	hasher := syncv1.Hasher_blake3_64_256
-	h := blake3.New(64, nil)
-	r = io.TeeReader(r, h)
-
 	creating := &syncv1.CreateRequest{
 		Meta: sk.meta,
 		Step: &syncv1.CreateRequest_Creating_{
@@ -72,6 +64,30 @@ func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.F
 	if err := stream.Send(creating); err != nil {
 		return fmt.Errorf("creating file on sink: %w", err)
 	}
+
+	if fi.IsDir {
+		closing := &syncv1.CreateRequest{
+			Step: &syncv1.CreateRequest_Closing_{Closing: &syncv1.CreateRequest_Closing{}},
+		}
+		if err := stream.Send(closing); err != nil {
+			return fmt.Errorf("closing file sink: %w", err)
+		}
+		success = true
+
+		res, err := stream.CloseAndReceive()
+		if err != nil {
+			return fmt.Errorf("closing stream: %w", err)
+		}
+		_ = res
+		return nil
+	}
+
+	blockSize := sk.createBlockSize
+	if blockSize > uint(fi.Size) {
+		blockSize = uint(fi.Size)
+	}
+	h := blake3.New(64, nil)
+	r = io.TeeReader(r, h)
 
 	writingStep := &syncv1.CreateRequest_Writing{}
 	writing := &syncv1.CreateRequest{
