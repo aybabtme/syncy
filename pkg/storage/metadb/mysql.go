@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -30,11 +31,12 @@ type FileSaveAction func(filepath string) (blake3_64_256_sum []byte, err error)
 var _ Metadata = (*MySQL)(nil)
 
 type MySQL struct {
+	ll *slog.Logger
 	db *sql.DB
 }
 
-func NewMySQL(db *sql.DB) *MySQL {
-	return &MySQL{db: db}
+func NewMySQL(ll *slog.Logger, db *sql.DB) *MySQL {
+	return &MySQL{ll: ll, db: db}
 }
 
 func (ms *MySQL) CreateAccount(ctx context.Context, accountName string) (accountPublicID string, err error) {
@@ -78,46 +80,67 @@ func filepathName(accountPublicID, projectPublicID string, path *typesv1.Path, f
 }
 
 func (ms *MySQL) Stat(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) (*typesv1.FileInfo, bool, error) {
+	ll := ms.ll.With(
+		slog.String("account_pub_id", accountPublicID),
+		slog.String("project_pub_id", projectPublicID),
+		slog.String("path", typesv1.StringFromPath(path)),
+	)
+	ll.InfoContext(ctx, "finding project DB ID")
 	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectPublicID)
 	if err != nil || !ok {
 		return nil, false, err
 	}
+	ll.InfoContext(ctx, "found project", slog.Uint64("project_id", projectID))
 	if len(path.Elements) == 0 {
 		return nil, false, fmt.Errorf("can't stat a dir, use `listDir` instead")
 	}
 	var parentDirID *uint64
-	if len(path.Elements) > 1 {
-		n := len(path.Elements) - 1
-		parentDir := &typesv1.Path{Elements: path.Elements[:n]}
-		parentDirID, ok, err = findDirID(ctx, ms.db, projectID, parentDir)
+	if dir := typesv1.DirOf(path); len(dir.Elements) > 0 {
+		ll.InfoContext(ctx, "searching for parent dir DB ID")
+		parentDirID, ok, err = findDirID(ctx, ll, ms.db, projectID, dir)
 		if err != nil || !ok {
 			return nil, false, err
 		}
+		ll = ll.With(slog.Uint64("dir_id", *parentDirID))
+		ll.InfoContext(ctx, "found parent dir")
 	}
 	filename := path.Elements[len(path.Elements)-1]
 	return getFileInfo(ctx, ms.db, projectID, parentDirID, filename)
 }
 
 func (ms *MySQL) ListDir(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error) {
+	ll := ms.ll.With(
+		slog.String("account_pub_id", accountPublicID),
+		slog.String("project_pub_id", projectPublicID),
+		slog.String("path", typesv1.StringFromPath(path)),
+	)
+	ll.InfoContext(ctx, "finding project DB ID")
 	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectPublicID)
 	if err != nil || !ok {
-		return nil, false, err
+		return nil, false, fmt.Errorf("finding project dir: %w", err)
 	}
+	ll.InfoContext(ctx, "found project", slog.Uint64("project_id", projectID))
 	var dirID *uint64
-	if len(path.Elements) > 1 {
-		dirID, ok, err = findDirID(ctx, ms.db, projectID, path)
+
+	if len(path.Elements) > 0 {
+		ll.InfoContext(ctx, "searching for parent dir DB ID")
+		dirID, ok, err = findDirID(ctx, ll, ms.db, projectID, path)
 		if err != nil || !ok {
-			return nil, false, err
+			return nil, false, fmt.Errorf("finding parent dir: %w", err)
 		}
+		ll = ll.With(slog.Uint64("dir_id", *dirID))
+		ll.InfoContext(ctx, "found parent dir")
 	}
 
-	dirfis, err := listDirs(ctx, ms.db, projectID, dirID)
+	ll.InfoContext(ctx, "listing child dirs in dir")
+	dirfis, err := listDirs(ctx, ll, ms.db, projectID, dirID)
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("listing children dir: %w", err)
 	}
-	filefis, err := listFiles(ctx, ms.db, projectID, dirID)
+	ll.InfoContext(ctx, "listing files in dir")
+	filefis, err := listFiles(ctx, ll, ms.db, projectID, dirID)
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("listing files: %w", err)
 	}
 	all := append(dirfis, filefis...)
 	sort.Slice(all, func(i, j int) bool {
@@ -126,7 +149,7 @@ func (ms *MySQL) ListDir(ctx context.Context, accountPublicID, projectPublicID s
 	return all, true, nil // TODO: add pagination
 }
 
-func listDirs(ctx context.Context, querier querier, projectID uint64, dirID *uint64) ([]*typesv1.FileInfo, error) {
+func listDirs(ctx context.Context, ll *slog.Logger, querier querier, projectID uint64, dirID *uint64) ([]*typesv1.FileInfo, error) {
 	var (
 		out  []*typesv1.FileInfo
 		rows *sql.Rows
@@ -142,14 +165,11 @@ func listDirs(ctx context.Context, querier querier, projectID uint64, dirID *uin
 			projectID, *dirID,
 		)
 	} else {
-		rows, err = querier.QueryContext(ctx,
-			"SELECT "+dirInfoColumns+" FROM dirs\n"+
-				"WHERE `project_id` = ? AND\n"+
-				"      `parent_id` IS NULL AND\n"+
-				"      `name` = ?\n"+
-				"LIMIT 10000", // TODO: pagination
-			projectID,
-		)
+		q := "SELECT " + dirInfoColumns + " FROM dirs\n" +
+			"WHERE `project_id` = ? AND\n" +
+			"      `parent_id` IS NULL\n" +
+			"LIMIT 10000"
+		rows, err = querier.QueryContext(ctx, q, projectID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("querying for dirs in dir: %w", err)
@@ -168,7 +188,7 @@ func listDirs(ctx context.Context, querier querier, projectID uint64, dirID *uin
 	return out, nil
 }
 
-func listFiles(ctx context.Context, querier querier, projectID uint64, dirID *uint64) ([]*typesv1.FileInfo, error) {
+func listFiles(ctx context.Context, ll *slog.Logger, querier querier, projectID uint64, dirID *uint64) ([]*typesv1.FileInfo, error) {
 	var (
 		out  []*typesv1.FileInfo
 		rows *sql.Rows
@@ -186,8 +206,7 @@ func listFiles(ctx context.Context, querier querier, projectID uint64, dirID *ui
 		rows, err = querier.QueryContext(ctx,
 			"SELECT "+fileInfoColumns+" FROM files\n"+
 				"WHERE `project_id` = ? AND\n"+
-				"      `dir_id` IS NULL AND\n"+
-				"      `name` = ?\n"+
+				"      `dir_id` IS NULL\n"+
 				"LIMIT 10000", // TODO: pagination
 			projectID,
 		)
@@ -308,10 +327,21 @@ func scanFileInfo(row scanner) (*typesv1.FileInfo, bool, error) {
 }
 
 func (ms *MySQL) GetSignature(ctx context.Context, accountPublicID, projectPublicID string) (*typesv1.DirSum, error) {
+	ll := ms.ll.With(
+		slog.String("account_pub_id", accountPublicID),
+		slog.String("project_pub_id", projectPublicID),
+	)
+	ll.InfoContext(ctx, "GetSignature")
 	panic("todo")
 }
 
 func (ms *MySQL) CreatePathTx(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, fn FileSaveAction) error {
+	ll := ms.ll.With(
+		slog.String("account_pub_id", accountPublicID),
+		slog.String("project_pub_id", projectPublicID),
+		slog.String("path", typesv1.StringFromPath(path)),
+	)
+	ll.InfoContext(ctx, "CreatePathTx")
 	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectPublicID)
 	if err != nil {
 		return fmt.Errorf("finding project ID: %w", err)
@@ -326,7 +356,7 @@ func (ms *MySQL) CreatePathTx(ctx context.Context, accountPublicID, projectPubli
 	err = withTx(ctx, ms.db, func(tx *sql.Tx) error {
 		var parentDirID *uint64
 		if len(path.Elements) > 0 {
-			id, ok, err := findDirID(ctx, tx, projectID, path)
+			id, ok, err := findDirID(ctx, ll, tx, projectID, path)
 			if err != nil {
 				return fmt.Errorf("finding dir %q, %w", typesv1.StringFromPath(path), err)
 			}
@@ -361,13 +391,22 @@ func (ms *MySQL) CreatePathTx(ctx context.Context, accountPublicID, projectPubli
 	}
 	sum, err := fn(filepath)
 	if err != nil {
-		return err
+		return fmt.Errorf("writing file in blob: %w", err)
 	}
 
-	return finishPendingFile(ctx, ms.db, pendingFileID, sum)
+	if err := finishPendingFile(ctx, ms.db, pendingFileID, sum); err != nil {
+		return fmt.Errorf("finishing pending file: %w", err)
+	}
+	return nil
 }
 
 func (ms *MySQL) PatchPathTx(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, sum *typesv1.FileSum, fn FileSaveAction) error {
+	ll := ms.ll.With(
+		slog.String("account_pub_id", accountPublicID),
+		slog.String("project_pub_id", projectPublicID),
+		slog.String("path", typesv1.StringFromPath(path)),
+	)
+	ll.InfoContext(ctx, "PatchPathTx")
 	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectPublicID)
 	if err != nil {
 		return fmt.Errorf("finding project ID: %w", err)
@@ -382,7 +421,7 @@ func (ms *MySQL) PatchPathTx(ctx context.Context, accountPublicID, projectPublic
 	err = withTx(ctx, ms.db, func(tx *sql.Tx) error {
 		var parentDirID *uint64
 		if len(path.Elements) > 0 {
-			id, ok, err := findDirID(ctx, tx, projectID, path)
+			id, ok, err := findDirID(ctx, ll, tx, projectID, path)
 			if err != nil {
 				return fmt.Errorf("finding dir %q, %w", typesv1.StringFromPath(path), err)
 			}
@@ -493,9 +532,9 @@ func markFileAsPending(ctx context.Context, execer execer, projectID uint64, fil
 
 func finishPendingFile(ctx context.Context, db *sql.DB, pendingFileID uint64, blake3_64_256_sum []byte) error {
 	return withTx(ctx, db, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, "UPDATE files SET blake3_64_256_sum=? WHERE file_id = ? LIMIT 1", blake3_64_256_sum, pendingFileID)
+		_, err := tx.ExecContext(ctx, "UPDATE files SET blake3_64_256_sum=? WHERE id = ? LIMIT 1", blake3_64_256_sum, pendingFileID)
 		if err != nil {
-			return fmt.Errorf("updating file with blake3_64_256_sum: %w", err)
+			return fmt.Errorf("updating file with blake3_64_256_sum (len=%d): %w", len(blake3_64_256_sum), err)
 		}
 		_, err = tx.ExecContext(ctx, "DELETE FROM pending_files WHERE file_id = ? LIMIT 1", pendingFileID)
 		if err != nil {
@@ -645,6 +684,7 @@ func createDir(ctx context.Context,
 
 func findDirID(
 	ctx context.Context,
+	ll *slog.Logger,
 	querier querier,
 	projectID uint64,
 	path *typesv1.Path,
@@ -658,12 +698,15 @@ func findDirID(
 		projectID,
 		path.Elements[0],
 	).Scan(&dirID)
+	ll.InfoContext(ctx, "dirID", slog.Uint64("dirID", dirID))
 	if err == sql.ErrNoRows {
+		ll.InfoContext(ctx, "no top level dir found with name", slog.String("name", path.Elements[0]))
 		return nil, false, nil
 	} else if err != nil {
 		return nil, false, fmt.Errorf("finding first element of path: %w", err)
 	}
 	if len(path.Elements) == 1 {
+		ll.InfoContext(ctx, "found it at root", slog.Uint64("dirID", dirID))
 		return &dirID, true, nil
 	}
 	for _, elem := range path.Elements[1:] {
@@ -674,11 +717,14 @@ func findDirID(
 			elem,
 		).Scan(&dirID)
 		if err == sql.ErrNoRows {
+			ll.InfoContext(ctx, "no dir found with name", slog.String("name", elem))
 			return nil, false, nil
 		} else if err != nil {
 			return nil, false, fmt.Errorf("finding %q: %w", strings.Join(path.Elements, "/"), err)
 		}
+		ll.InfoContext(ctx, "iterating", slog.Uint64("dirID", dirID))
 	}
+	ll.InfoContext(ctx, "done iterating", slog.Uint64("dirID", dirID))
 	return &dirID, true, nil
 }
 

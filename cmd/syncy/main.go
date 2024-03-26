@@ -139,7 +139,7 @@ func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFla
 				return fmt.Errorf("block size must fit in a uint32")
 			}
 
-			sink, err := syncclient.ClientAdapter(client, meta, blockSize)
+			sink, err := syncclient.ClientAdapter(ll, client, meta, blockSize)
 			if err != nil {
 				return fmt.Errorf("configuring sync service client: %w", err)
 			}
@@ -196,13 +196,11 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 						return fmt.Errorf("creating sync service client: %w", err)
 					}
 
-					ll.DebugContext(ctx, "stating file", slog.String("path", path))
+					ll.InfoContext(ctx, "stating file", slog.String("path", path))
 
 					res, err := client.Stat(ctx, connect.NewRequest(&syncv1.StatRequest{
 						Meta: meta,
-						Path: &typesv1.Path{
-							Elements: filepath.SplitList(path),
-						},
+						Path: typesv1.PathFromString(path),
 					}))
 					if err != nil {
 						if cerr, ok := err.(*connect.Error); ok {
@@ -250,13 +248,11 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 						return fmt.Errorf("creating sync service client: %w", err)
 					}
 
-					ll.DebugContext(ctx, "listing dirs", slog.String("path", path))
+					ll.InfoContext(ctx, "listing dirs", slog.String("path", path))
 
 					res, err := client.ListDir(ctx, connect.NewRequest(&syncv1.ListDirRequest{
 						Meta: meta,
-						Path: &typesv1.Path{
-							Elements: filepath.SplitList(path),
-						},
+						Path: typesv1.PathFromString(path),
 					}))
 					if err != nil {
 						if cerr, ok := err.(*connect.Error); ok {
@@ -765,12 +761,12 @@ func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 						return fmt.Errorf("block size must fit in a uint32")
 					}
 
-					sink, err := syncclient.ClientAdapter(client, meta, blockSize)
+					sink, err := syncclient.ClientAdapter(ll.WithGroup("sink"), client, meta, blockSize)
 					if err != nil {
 						return fmt.Errorf("configuring sync service client: %w", err)
 					}
 
-					ll.InfoContext(ctx, "creating file", slog.String("path", path))
+					ll.InfoContext(ctx, "opening local file", slog.String("path", path))
 					f, err := os.Open(path)
 					if err != nil {
 						return fmt.Errorf("opening file at <path>: %w", err)
@@ -790,6 +786,7 @@ func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 						return fmt.Errorf("preparing request: %w", err)
 					}
 
+					ll.InfoContext(ctx, "creating file on remote", slog.String("path", path))
 					err = sink.CreateFile(
 						ctx,
 						typesv1.PathFromString(dir),

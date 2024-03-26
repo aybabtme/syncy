@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 
 	"connectrpc.com/connect"
 	syncv1 "github.com/aybabtme/syncy/pkg/gen/svc/sync/v1"
@@ -17,6 +18,7 @@ import (
 var _ dirsync.Sink = (*Sink)(nil)
 
 type Sink struct {
+	ll              *slog.Logger
 	client          syncv1connect.SyncServiceClient
 	createBlockSize uint
 	meta            *typesv1.ReqMeta
@@ -24,11 +26,11 @@ type Sink struct {
 
 const minCreateBlockSize = 10 * 1 << 10
 
-func ClientAdapter(client syncv1connect.SyncServiceClient, meta *typesv1.ReqMeta, createBlockSize uint) (*Sink, error) {
+func ClientAdapter(ll *slog.Logger, client syncv1connect.SyncServiceClient, meta *typesv1.ReqMeta, createBlockSize uint) (*Sink, error) {
 	if createBlockSize < minCreateBlockSize {
 		return nil, fmt.Errorf("block size must be at least %d", minCreateBlockSize)
 	}
-	return &Sink{client: client, createBlockSize: createBlockSize, meta: meta}, nil
+	return &Sink{ll: ll, client: client, createBlockSize: createBlockSize, meta: meta}, nil
 }
 
 func (sk *Sink) GetSignatures(ctx context.Context) (*typesv1.DirSum, error) {
@@ -42,11 +44,18 @@ func (sk *Sink) GetSignatures(ctx context.Context) (*typesv1.DirSum, error) {
 }
 
 func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.FileInfo, r io.Reader) error {
+	ll := sk.ll.With(
+		slog.String("path", typesv1.StringFromPath(dir)),
+		slog.String("file", fi.Name),
+	)
 	success := false
+	ll.InfoContext(ctx, "creating file")
 	stream := sk.client.Create(ctx)
 	defer func() {
 		if !success {
+			ll.InfoContext(ctx, "failed, closing and receiving")
 			_, _ = stream.CloseAndReceive()
+			ll.InfoContext(ctx, "done closing and receiving")
 		}
 	}()
 
@@ -61,17 +70,21 @@ func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.F
 			},
 		},
 	}
+	ll.InfoContext(ctx, "starting step create")
 	if err := stream.Send(creating); err != nil {
 		return fmt.Errorf("creating file on sink: %w", err)
 	}
+	ll.InfoContext(ctx, "done step create")
 
 	if fi.IsDir {
 		closing := &syncv1.CreateRequest{
 			Step: &syncv1.CreateRequest_Closing_{Closing: &syncv1.CreateRequest_Closing{}},
 		}
+		ll.InfoContext(ctx, "starting step closing")
 		if err := stream.Send(closing); err != nil {
 			return fmt.Errorf("closing file sink: %w", err)
 		}
+		ll.InfoContext(ctx, "done step closing")
 		success = true
 
 		res, err := stream.CloseAndReceive()
@@ -86,6 +99,9 @@ func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.F
 	if blockSize > uint(fi.Size) {
 		blockSize = uint(fi.Size)
 	}
+	if blockSize == 0 {
+		blockSize = 1024
+	}
 	h := blake3.New(64, nil)
 	r = io.TeeReader(r, h)
 
@@ -98,6 +114,7 @@ func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.F
 	buf := make([]byte, blockSize)
 	more := true
 	for more {
+		ll.InfoContext(ctx, "reading data", slog.Uint64("blocksize", uint64(blockSize)))
 		n, err := io.ReadFull(r, buf)
 		switch err {
 		case io.EOF, io.ErrUnexpectedEOF:
@@ -109,9 +126,11 @@ func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.F
 		}
 		if n > 0 {
 			writingStep.ContentBlock = buf[:n]
+			ll.InfoContext(ctx, "starting step writing")
 			if err := stream.Send(writing); err != nil {
 				return fmt.Errorf("writing file on sink: %w", err)
 			}
+			ll.InfoContext(ctx, "done step writing")
 		}
 	}
 
@@ -123,16 +142,20 @@ func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.F
 			},
 		},
 	}
+	ll.InfoContext(ctx, "starting step closing")
 	if err := stream.Send(closing); err != nil {
 		return fmt.Errorf("closing file sink: %w", err)
 	}
+	ll.InfoContext(ctx, "done step closing")
 	success = true
 
+	ll.InfoContext(ctx, "success, closing and receiving")
 	res, err := stream.CloseAndReceive()
 	if err != nil {
 		return fmt.Errorf("closing stream: %w", err)
 	}
 	_ = res
+	ll.InfoContext(ctx, "done closing and receiving")
 
 	return err
 }

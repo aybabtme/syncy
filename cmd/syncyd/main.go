@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"os"
 
 	"github.com/aybabtme/syncy/pkg/gen/svc/sync/v1/syncv1connect"
@@ -59,7 +60,7 @@ func realMain(
 			return fmt.Errorf("opening mysql for metadata DB: %w", err)
 		}
 		defer db.Close()
-		meta = metadb.NewMySQL(db)
+		meta = metadb.NewMySQL(ll.WithGroup("mysql"), db)
 	}
 	if meta == nil {
 		return fmt.Errorf("no metadata backend provided")
@@ -104,6 +105,12 @@ func realMain(
 
 	mux := http.NewServeMux()
 	mux.Handle(syncsvcPath, synchdl)
+
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
 	srv := http.Server{
 		Handler: mux,

@@ -1,9 +1,33 @@
 package typesv1
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"strings"
+)
 
 func PathFromString(path string) *Path {
-	return &Path{Elements: filepath.SplitList(path)}
+	var out []string
+	for _, el := range strings.Split(path, "/") {
+		if el == "" {
+			continue
+		}
+		if el[0] == '/' {
+			el = el[1:]
+		}
+		if el[len(el)-1] == '/' {
+			el = el[:len(el)-1]
+		}
+		out = append(out, el)
+	}
+	return &Path{Elements: out}
+}
+
+func DirOf(path *Path) *Path {
+	n := len(path.Elements)
+	if n < 1 {
+		return &Path{}
+	}
+	return &Path{Elements: path.Elements[:n-1]}
 }
 
 func PathJoin(parent *Path, name string) *Path {

@@ -44,7 +44,7 @@ CREATE TABLE files (
     `mod_time` BIGINT NOT NULL,
     `mode` INT UNSIGNED NOT NULL,
 
-    `blake3_64_256_sum` BINARY(32) DEFAULT NULL,
+    `blake3_64_256_sum` BINARY(64) DEFAULT NULL,
 
     UNIQUE (`project_id`, `dir_id`, `name`)
 );
