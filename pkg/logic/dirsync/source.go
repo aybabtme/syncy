@@ -15,8 +15,8 @@ type Source interface {
 }
 
 type CreateOp struct {
-	Path     *typesv1.Path
-	FileInfo *typesv1.FileInfo
+	ParentDir *typesv1.Path
+	FileInfo  *typesv1.FileInfo
 }
 
 type DeleteOp struct {
@@ -24,9 +24,7 @@ type DeleteOp struct {
 }
 
 type SourceDir struct {
-	Name  string
-	Mode  uint32
-	Size  uint64
+	Info  *typesv1.FileInfo
 	Dirs  []*SourceDir
 	Files []*SourceFile
 }
@@ -46,8 +44,7 @@ func TraceSource(ctx context.Context, root string, src Source) (*SourceDir, erro
 
 func traceSource(ctx context.Context, base string, fi fs.FileInfo, fs Source) (*SourceDir, error) {
 	dir := &SourceDir{
-		Name: fi.Name(),
-		Mode: uint32(fi.Mode()),
+		Info: typesv1.FileInfoFromFS(fi),
 	}
 
 	fsEntries, err := fs.ReadDir(base)
@@ -70,13 +67,14 @@ func traceSource(ctx context.Context, base string, fi fs.FileInfo, fs Source) (*
 				return nil, fmt.Errorf("tracing %q, %w", entryPath, err)
 			}
 			dir.Dirs = append(dir.Dirs, child)
-			dir.Size += child.Size
+
+			dir.Info.Size += child.Info.Size
 		} else if fsfi.Mode().IsRegular() {
 			file := &SourceFile{
 				Info: typesv1.FileInfoFromFS(fsfi),
 			}
 			dir.Files = append(dir.Files, file)
-			dir.Size += file.Info.Size
+			dir.Info.Size += file.Info.Size
 		}
 	}
 	return dir, nil

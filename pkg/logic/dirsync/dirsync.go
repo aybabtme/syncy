@@ -135,7 +135,7 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *Sour
 
 	for _, srcDir := range src.Dirs {
 		// set(Src_dir) - set(Sink_dir)
-		sinkDir, found := sinkHasDirNamed(sink, srcDir.Name)
+		sinkDir, found := sinkHasDirNamed(sink, srcDir.Info.Name)
 		if !found {
 			// the entire dir is missing, so we can stop looking for
 			// patches and deletes and just generate a list of creates
@@ -145,7 +145,7 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *Sour
 			continue
 		}
 		// set(Src_dir) ∩ set(Sink_dir)
-		dirPath := typesv1.PathJoin(path, srcDir.Name)
+		dirPath := typesv1.PathJoin(path, srcDir.Info.Name)
 		cOps, dOps, pOps, err := computeDirDiff(ctx, fs, dirPath, srcDir, sinkDir)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("computing diff for directory %q: %w", dirPath, err)
@@ -155,7 +155,7 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *Sour
 		patchOps = append(patchOps, pOps...)
 		// check if the dir itself needs a patch too
 		if diff := makeDirDiff(srcDir, sinkDir); diff != nil {
-			op := patchDirOp(path, src.Name, diff)
+			op := patchDirOp(path, src.Info.Name, diff)
 			patchOps = append(patchOps, op)
 		}
 	}
@@ -199,16 +199,15 @@ func ptr[E any](v E) *E {
 func createOpsForDir(path *typesv1.Path, dir *SourceDir) []CreateOp {
 	ops := make([]CreateOp, 0, len(dir.Dirs)+len(dir.Files)+1)
 	ops = append(ops, createDirOp(path, dir))
-	path = typesv1.PathJoin(path, dir.Name)
+	currentDir := typesv1.PathJoin(path, dir.Info.Name)
 	// create files first, so that if we restart the process, we will
 	// have entire directories to transfer at once, which will help expedite
 	// the search
 	for _, file := range dir.Files {
-		fpath := typesv1.PathJoin(path, file.Info.Name)
-		ops = append(ops, CreateOp{Path: fpath, FileInfo: file.Info})
+		ops = append(ops, CreateOp{ParentDir: currentDir, FileInfo: file.Info})
 	}
 	for _, dir := range dir.Dirs {
-		ops = append(ops, createOpsForDir(path, dir)...)
+		ops = append(ops, createOpsForDir(currentDir, dir)...)
 	}
 	return ops
 }
@@ -244,10 +243,10 @@ func sinkHasFileNamed(sink *typesv1.DirSum, name string) (*typesv1.FileSum, bool
 func srcHasDirNamed(src *SourceDir, name string) bool {
 	// relies on the fact that entries are sorted
 	assert("must be sorted", slices.IsSortedFunc(src.Dirs, func(a, b *SourceDir) int {
-		return strings.Compare(a.Name, b.Name)
+		return strings.Compare(a.Info.Name, b.Info.Name)
 	}))
 	_, found := slices.BinarySearchFunc(src.Dirs, name, func(dir *SourceDir, name string) int {
-		return strings.Compare(dir.Name, name)
+		return strings.Compare(dir.Info.Name, name)
 	})
 	return found
 }
@@ -265,7 +264,8 @@ func srcHasFileNamed(src *SourceDir, name string) bool {
 
 func createDirOp(path *typesv1.Path, dir *SourceDir) CreateOp {
 	return CreateOp{
-		Path: typesv1.PathJoin(path, dir.Name),
+		ParentDir: path,
+		FileInfo:  dir.Info,
 	}
 }
 
@@ -289,8 +289,8 @@ func makeDirDiff(src *SourceDir, sink *typesv1.DirSum) *DirPatchOp {
 
 func createFileOp(path *typesv1.Path, file *SourceFile) CreateOp {
 	return CreateOp{
-		Path:     typesv1.PathJoin(path, file.Info.Name),
-		FileInfo: file.Info,
+		ParentDir: typesv1.PathJoin(path, file.Info.Name),
+		FileInfo:  file.Info,
 	}
 }
 
@@ -313,8 +313,8 @@ func makeFileDiff(src *SourceFile, sink *typesv1.FileSum) *FilePatchOp {
 }
 
 func upload(ctx context.Context, A Source, B Sink, createOp CreateOp) error {
-	path := typesv1.StringFromPath(createOp.Path)
-	f, err := A.Open(path)
+	path := typesv1.PathJoin(createOp.ParentDir, createOp.FileInfo.Name)
+	f, err := A.Open(typesv1.StringFromPath(path))
 	if err != nil {
 		return fmt.Errorf("opening %q on source: %w", path, err)
 	}
@@ -324,7 +324,7 @@ func upload(ctx context.Context, A Source, B Sink, createOp CreateOp) error {
 		return fmt.Errorf("stating %q on source: %w", path, err)
 	}
 
-	err = B.CreateFile(ctx, createOp.Path, typesv1.FileInfoFromFS(fi), f)
+	err = B.CreateFile(ctx, createOp.ParentDir, typesv1.FileInfoFromFS(fi), f)
 	if err != nil {
 		return fmt.Errorf("creating file on sink: %w", err)
 	}

@@ -5,12 +5,15 @@ import (
 	"io/fs"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestTraceSource(t *testing.T) {
+	nowpb := timestamppb.New(time.Unix(-62135596800, 0))
 	regFile := fs.FileMode(fs.ModeAppend)
 	require.True(t, regFile.IsRegular())
 	tests := []struct {
@@ -30,40 +33,71 @@ func TestTraceSource(t *testing.T) {
 				"root/world":             &fstest.MapFile{Mode: regFile, Data: []byte("hello world")},
 			},
 			want: &SourceDir{
-				Name: "root",
-				Mode: uint32(2147484013),
-				Size: 61,
+				Info: &typesv1.FileInfo{
+					Name:    "root",
+					Mode:    uint32(2147484013),
+					Size:    61,
+					IsDir:   true,
+					ModTime: nowpb,
+				},
 				Dirs: []*SourceDir{
 					{
-						Name: "en",
-						Mode: uint32(2147484013),
-						Size: 11,
+						Info: &typesv1.FileInfo{
+							Name:    "en",
+							Mode:    uint32(2147484013),
+							Size:    11,
+							IsDir:   true,
+							ModTime: nowpb,
+						},
 						Files: []*SourceFile{
-							{Info: &typesv1.FileInfo{Name: "world", Mode: uint32(regFile), Size: 11}},
+							{Info: &typesv1.FileInfo{
+								Name: "world", Mode: uint32(regFile), Size: 11,
+								ModTime: nowpb,
+							}},
 						},
 					},
 					{
-						Name: "hello",
-						Mode: uint32(2147484013),
-						Size: 39,
+						Info: &typesv1.FileInfo{
+							Name:    "hello",
+							Mode:    uint32(2147484013),
+							Size:    39,
+							IsDir:   true,
+							ModTime: nowpb,
+						},
 						Dirs: []*SourceDir{
 							{
-								Name: "fr",
-								Mode: uint32(2147484013),
-								Size: 14,
+								Info: &typesv1.FileInfo{
+									Name:    "fr",
+									Mode:    uint32(2147484013),
+									Size:    14,
+									IsDir:   true,
+									ModTime: nowpb,
+								},
 								Files: []*SourceFile{
-									{Info: &typesv1.FileInfo{Name: "le_monde", Mode: uint32(regFile), Size: 14}},
+									{Info: &typesv1.FileInfo{
+										Name: "le_monde", Mode: uint32(regFile), Size: 14,
+										ModTime: nowpb,
+									}},
 								},
 							},
 						},
 						Files: []*SourceFile{
-							{Info: &typesv1.FileInfo{Name: "le_monde", Mode: uint32(regFile), Size: 14}},
-							{Info: &typesv1.FileInfo{Name: "world", Mode: uint32(regFile), Size: 11}},
+							{Info: &typesv1.FileInfo{
+								Name: "le_monde", Mode: uint32(regFile), Size: 14,
+								ModTime: nowpb,
+							}},
+							{Info: &typesv1.FileInfo{
+								Name: "world", Mode: uint32(regFile), Size: 11,
+								ModTime: nowpb,
+							}},
 						},
 					},
 				},
 				Files: []*SourceFile{
-					{Info: &typesv1.FileInfo{Name: "world", Mode: uint32(regFile), Size: 11}},
+					{Info: &typesv1.FileInfo{
+						Name: "world", Mode: uint32(regFile), Size: 11,
+						ModTime: nowpb,
+					}},
 				},
 			},
 		},
