@@ -19,26 +19,29 @@ var _ dirsync.Sink = (*Sink)(nil)
 type Sink struct {
 	client          syncv1connect.SyncServiceClient
 	createBlockSize uint
+	meta            *typesv1.ReqMeta
 }
 
 const minCreateBlockSize = 10 * 1 << 10
 
-func ClientAdapter(client syncv1connect.SyncServiceClient, createBlockSize uint) (*Sink, error) {
+func ClientAdapter(client syncv1connect.SyncServiceClient, meta *typesv1.ReqMeta, createBlockSize uint) (*Sink, error) {
 	if createBlockSize < minCreateBlockSize {
 		return nil, fmt.Errorf("block size must be at least %d", minCreateBlockSize)
 	}
-	return &Sink{client: client, createBlockSize: createBlockSize}, nil
+	return &Sink{client: client, createBlockSize: createBlockSize, meta: meta}, nil
 }
 
 func (sk *Sink) GetSignatures(ctx context.Context) (*typesv1.DirSum, error) {
-	res, err := sk.client.GetSignature(ctx, connect.NewRequest(&syncv1.GetSignatureRequest{}))
+	res, err := sk.client.GetSignature(ctx, connect.NewRequest(&syncv1.GetSignatureRequest{
+		Meta: sk.meta,
+	}))
 	if err != nil {
 		return nil, err
 	}
 	return res.Msg.GetRoot(), nil
 }
 
-func (sk *Sink) CreateFile(ctx context.Context, path *typesv1.Path, fi *typesv1.FileInfo, r io.Reader) error {
+func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.FileInfo, r io.Reader) error {
 	success := false
 	stream := sk.client.Create(ctx)
 	defer func() {
@@ -57,9 +60,10 @@ func (sk *Sink) CreateFile(ctx context.Context, path *typesv1.Path, fi *typesv1.
 	r = io.TeeReader(r, h)
 
 	creating := &syncv1.CreateRequest{
+		Meta: sk.meta,
 		Step: &syncv1.CreateRequest_Creating_{
 			Creating: &syncv1.CreateRequest_Creating{
-				Path:   path,
+				Path:   dir,
 				Info:   fi,
 				Hasher: hasher,
 			},
@@ -118,7 +122,7 @@ func (sk *Sink) CreateFile(ctx context.Context, path *typesv1.Path, fi *typesv1.
 }
 
 func (sk *Sink) DeleteFiles(ctx context.Context, ops []dirsync.DeleteOp) error {
-	_, err := sk.client.Deletes(ctx, connect.NewRequest(&syncv1.DeletesRequest{}))
+	_, err := sk.client.Deletes(ctx, connect.NewRequest(&syncv1.DeletesRequest{Meta: sk.meta}))
 	return err
 }
 

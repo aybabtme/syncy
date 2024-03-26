@@ -7,9 +7,9 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/fatih/color v1.16.0
 	github.com/go-sql-driver/mysql v1.8.0
-	github.com/golang/protobuf v1.5.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/kr/pretty v0.3.1
+	github.com/noquark/nanoid v0.0.0-20230718020649-488c3ab1b3e1
 	github.com/silvasur/buzhash v0.0.0-20160816060738-9bdec3dec7c6
 	github.com/stretchr/testify v1.8.4
 	github.com/urfave/cli v1.22.14

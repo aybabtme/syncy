@@ -31,11 +31,42 @@ func NewHandler(ll *slog.Logger, db storage.DB) *Handler {
 	return &Handler{ll: ll, db: db}
 }
 
+func (hdl *Handler) CreateAccount(ctx context.Context, req *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.CreateAccountResponse], error) {
+	ll := hdl.ll.WithGroup("CreateAccount")
+	ll.InfoContext(ctx, "received req")
+	if req.Msg.AccountName == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("missing account name"))
+	}
+	publicID, err := hdl.db.CreateAccount(ctx, req.Msg.AccountName)
+	if err != nil {
+		ll.ErrorContext(ctx, "creating account in DB", slog.String("err", err.Error()))
+		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
+	}
+	return connect.NewResponse(&v1.CreateAccountResponse{AccountId: publicID}), nil
+}
+func (hdl *Handler) CreateProject(ctx context.Context, req *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error) {
+	ll := hdl.ll.WithGroup("CreateProject")
+	ll.InfoContext(ctx, "received req")
+	if req.Msg.AccountId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("missing account ID"))
+	}
+	if req.Msg.ProjectName == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("missing project name"))
+	}
+	err := hdl.db.CreateProject(ctx, req.Msg.AccountId, req.Msg.ProjectName)
+	if err != nil {
+		ll.ErrorContext(ctx, "creating project in DB", slog.String("err", err.Error()))
+		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
+	}
+	return connect.NewResponse(&v1.CreateProjectResponse{}), nil
+}
+
 func (hdl *Handler) Stat(ctx context.Context, req *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error) {
 	ll := hdl.ll.WithGroup("Stat")
 	ll.InfoContext(ctx, "received req")
-
-	fi, ok, err := hdl.db.Stat(ctx, req.Msg.GetPath())
+	// TODO: validate this
+	accountPubID, projectName := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectName
+	fi, ok, err := hdl.db.Stat(ctx, accountPubID, projectName, req.Msg.GetPath())
 	if err != nil {
 		ll.ErrorContext(ctx, "getting stat from DB", slog.String("err", err.Error()))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
@@ -53,7 +84,9 @@ func (hdl *Handler) ListDir(ctx context.Context, req *connect.Request[v1.ListDir
 	ll := hdl.ll.WithGroup("ListDir")
 	ll.InfoContext(ctx, "received req")
 
-	dirEntries, ok, err := hdl.db.ListDir(ctx, req.Msg.GetPath())
+	// TODO: validate this
+	accountPubID, projectName := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectName
+	dirEntries, ok, err := hdl.db.ListDir(ctx, accountPubID, projectName, req.Msg.GetPath())
 	if err != nil {
 		ll.ErrorContext(ctx, "getting listdir from DB", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
@@ -71,7 +104,8 @@ func (hdl *Handler) GetSignature(ctx context.Context, req *connect.Request[v1.Ge
 	ll := hdl.ll.WithGroup("GetSignature")
 	ll.InfoContext(ctx, "received req")
 
-	sig, err := hdl.db.GetSignature(ctx)
+	accountPubID, projectName := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectName
+	sig, err := hdl.db.GetSignature(ctx, accountPubID, projectName)
 	if err != nil {
 		ll.ErrorContext(ctx, "getting signature from DB", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
@@ -105,13 +139,14 @@ func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown hasher: %s", creating.Hasher.String()))
 	}
 	ll.InfoContext(ctx, "creating path")
-	err := hdl.db.CreatePath(ctx, creating.Path, creating.Info, func(w io.Writer) error {
+	accountPubID, projectName := req.GetMeta().AccountId, req.GetMeta().ProjectName
+	err := hdl.db.CreatePath(ctx, accountPubID, projectName, creating.Path, creating.Info, func(w io.Writer) (blake3_64_256_sum []byte, _ error) {
 		tgt := io.MultiWriter(w, h)
 		var err error
 		for {
 			if err = conn.Receive(&req); err != nil {
 				ll.Error("receiving step message", slog.Any("err", err))
-				return err
+				return nil, err
 			}
 			switch step := req.Step.(type) {
 			case *v1.CreateRequest_Writing_:
@@ -119,7 +154,7 @@ func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.
 				_, err = tgt.Write(step.Writing.ContentBlock)
 				if err != nil {
 					ll.Error("writing content to target", slog.Any("err", err))
-					return connect.NewError(connect.CodeInternal, errors.New("unable to write to target"))
+					return nil, connect.NewError(connect.CodeInternal, errors.New("unable to write to target"))
 				}
 			case *v1.CreateRequest_Closing_:
 				ll.InfoContext(ctx, "closing file")
@@ -130,14 +165,14 @@ func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.
 						slog.String("want", hex.EncodeToString(wantSum)),
 						slog.String("got", hex.EncodeToString(wantSum)),
 					)
-					return connect.NewError(
+					return nil, connect.NewError(
 						connect.CodeFailedPrecondition,
 						fmt.Errorf("sent content hashsum of %x but requester announced a sum of %x", gotSum, wantSum),
 					)
 				}
-				return nil
+				return gotSum, nil
 			default:
-				return connect.NewError(connect.CodeInvalidArgument, errors.New("expecting message of type `writing` or `closing`"))
+				return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("expecting message of type `writing` or `closing`"))
 			}
 		}
 	})
@@ -171,7 +206,8 @@ func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.P
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown hasher: %s", opening.Hasher.String()))
 	}
 	ll.InfoContext(ctx, "opening path for patching")
-	err := hdl.db.PatchPath(ctx, opening.Path, opening.Info, opening.Sum, func(orig io.ReadSeeker, w io.Writer) error {
+	accountPubID, projectName := req.GetMeta().AccountId, req.GetMeta().ProjectName
+	err := hdl.db.PatchPath(ctx, accountPubID, projectName, opening.Path, opening.Info, opening.Sum, func(orig io.ReadSeeker, w io.Writer) (blake3_64_256_sum []byte, _ error) {
 		tgt := io.MultiWriter(w, h)
 
 		patcher := dirsync.NewFilePatcher(orig, tgt, opening.Sum)
@@ -180,7 +216,7 @@ func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.P
 		for {
 			if err = conn.Receive(&req); err != nil {
 				ll.Error("receiving step message", slog.Any("err", err))
-				return err
+				return nil, err
 			}
 			switch step := req.Step.(type) {
 			case *v1.PatchRequest_Patching_:
@@ -191,11 +227,11 @@ func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.P
 				case *typesv1.FileBlockPatch_Data:
 					_, err = patcher.WriteData(p.Data)
 				default:
-					return connect.NewError(connect.CodeInvalidArgument, errors.New("expecting patch of type `block_id` or `data`"))
+					return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("expecting patch of type `block_id` or `data`"))
 				}
 				if err != nil {
 					ll.Error("writing content to target", slog.Any("err", err))
-					return connect.NewError(connect.CodeInternal, errors.New("unable to write to target"))
+					return nil, connect.NewError(connect.CodeInternal, errors.New("unable to write to target"))
 				}
 
 			case *v1.PatchRequest_Closing_:
@@ -207,17 +243,16 @@ func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.P
 						slog.String("want", hex.EncodeToString(wantSum)),
 						slog.String("got", hex.EncodeToString(wantSum)),
 					)
-					return connect.NewError(
+					return nil, connect.NewError(
 						connect.CodeFailedPrecondition,
 						fmt.Errorf("sent content creates a file with hashsum of %x but requester announced a sum of %x", gotSum, wantSum),
 					)
 				}
-				return nil
+				return gotSum, nil
 
 			default:
-				return connect.NewError(connect.CodeInvalidArgument, errors.New("expecting message of type `writing` or `closing`"))
+				return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("expecting message of type `writing` or `closing`"))
 			}
-
 		}
 	})
 	if err != nil {
@@ -231,7 +266,8 @@ func (hdl *Handler) Deletes(ctx context.Context, req *connect.Request[v1.Deletes
 	ll := hdl.ll.WithGroup("Deletes")
 	ll.InfoContext(ctx, "received req")
 
-	if err := hdl.db.DeletePaths(ctx, req.Msg.Paths); err != nil {
+	accountPubID, projectName := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectName
+	if err := hdl.db.DeletePaths(ctx, accountPubID, projectName, req.Msg.Paths); err != nil {
 		ll.ErrorContext(ctx, "couldn't delete paths", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("unable to delete paths"))
 	}

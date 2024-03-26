@@ -23,8 +23,8 @@ import (
 	"github.com/aybabtme/syncy/pkg/logic/syncclient"
 	"github.com/aybabtme/syncy/pkg/storage/blobdb"
 	"github.com/dustin/go-humanize"
-	"github.com/golang/protobuf/proto"
 	"github.com/urfave/cli"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -33,6 +33,14 @@ const (
 )
 
 var (
+	accountIDFlag = cli.StringFlag{
+		Name:   "account_id",
+		EnvVar: "SYNCY_ACCOUNT_ID",
+	}
+	projectNameFlag = cli.StringFlag{
+		Name:   "project",
+		EnvVar: "SYNCY_PROJECT",
+	}
 	serverSchemeFlag = cli.StringFlag{
 		Name:  "server.schema",
 		Value: "http",
@@ -59,6 +67,10 @@ var (
 		Value: 2 << 16,
 		Usage: "block size for rsync algorithm",
 	}
+	scratchLocalPath = cli.StringFlag{
+		Name:  "scratch.local_path",
+		Value: "/tmp/syncy_scratch",
+	}
 	outFlag = cli.StringFlag{
 		Name:  "out",
 		Usage: "if specified, the file where to write the output",
@@ -81,11 +93,13 @@ func main() {
 	app.Version = version
 	app.Flags = []cli.Flag{
 		printerFlag,
+		accountIDFlag,
+		projectNameFlag,
 	}
 	app.Commands = []cli.Command{
 		syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag, maxParallelFileStreamFlag),
 		statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag),
-		debugCommands(outFlag),
+		debugCommands(outFlag, scratchLocalPath),
 	}
 
 	if err := app.Run(os.Args); err != nil {
@@ -113,7 +127,7 @@ func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFla
 			if err != nil {
 				return fmt.Errorf("creating http client: %w", err)
 			}
-			client, err := makeClient(cctx, httpClient, serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag)
+			client, meta, err := makeClient(cctx, httpClient, serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag)
 			if err != nil {
 				return fmt.Errorf("creating sync service client: %w", err)
 			}
@@ -125,7 +139,7 @@ func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFla
 				return fmt.Errorf("block size must fit in a uint32")
 			}
 
-			sink, err := syncclient.ClientAdapter(client, blockSize)
+			sink, err := syncclient.ClientAdapter(client, meta, blockSize)
 			if err != nil {
 				return fmt.Errorf("configuring sync service client: %w", err)
 			}
@@ -177,7 +191,7 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 					if err != nil {
 						return fmt.Errorf("creating http client: %w", err)
 					}
-					client, err := makeClient(cctx, httpClient, serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag)
+					client, meta, err := makeClient(cctx, httpClient, serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag)
 					if err != nil {
 						return fmt.Errorf("creating sync service client: %w", err)
 					}
@@ -185,6 +199,7 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 					ll.DebugContext(ctx, "stating file", slog.String("path", path))
 
 					res, err := client.Stat(ctx, connect.NewRequest(&syncv1.StatRequest{
+						Meta: meta,
 						Path: &typesv1.Path{
 							Elements: filepath.SplitList(path),
 						},
@@ -230,7 +245,7 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 					if err != nil {
 						return fmt.Errorf("creating http client: %w", err)
 					}
-					client, err := makeClient(cctx, httpClient, serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag)
+					client, meta, err := makeClient(cctx, httpClient, serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag)
 					if err != nil {
 						return fmt.Errorf("creating sync service client: %w", err)
 					}
@@ -238,6 +253,7 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 					ll.DebugContext(ctx, "listing dirs", slog.String("path", path))
 
 					res, err := client.ListDir(ctx, connect.NewRequest(&syncv1.ListDirRequest{
+						Meta: meta,
 						Path: &typesv1.Path{
 							Elements: filepath.SplitList(path),
 						},
@@ -263,14 +279,81 @@ func statsCommands(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathF
 	}
 }
 
-func debugCommands(outFlag cli.StringFlag) cli.Command {
+func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 	return cli.Command{
 		Name:  "debug",
 		Usage: "debug commands",
 		Subcommands: []cli.Command{
 			{
+				Name:  "create-account",
+				Usage: "create an account on a remote backend",
+				Flags: []cli.Flag{serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag, blockSizeFlag},
+				Action: func(cctx *cli.Context) error {
+					account := cctx.Args().Get(0)
+					if account == "" {
+						return fmt.Errorf("<account> is required")
+					}
+					ctx, ll, printer, err := makeDeps(cctx)
+					if err != nil {
+						return fmt.Errorf("preparing dependencies: %w", err)
+					}
+					httpClient, err := makeHttpClient(cctx)
+					if err != nil {
+						return fmt.Errorf("creating http client: %w", err)
+					}
+					client, _, err := makeClient(cctx, httpClient, serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag)
+					if err != nil {
+						return fmt.Errorf("creating sync service client: %w", err)
+					}
+					ll.InfoContext(ctx, "creating account")
+					res, err := client.CreateAccount(ctx, connect.NewRequest(&syncv1.CreateAccountRequest{
+						AccountName: account,
+					}))
+					if err != nil {
+						return fmt.Errorf("creating account: %w", err)
+					}
+					ll.InfoContext(ctx, "account created, use the account_id (SYNCY_ACCOUNT_ID) for future requests")
+					printer.Emit(map[string]string{"account_id": res.Msg.GetAccountId()})
+					return nil
+				},
+			},
+			{
+				Name:  "create-project",
+				Usage: "create an project on a remote backend",
+				Flags: []cli.Flag{serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag, blockSizeFlag},
+				Action: func(cctx *cli.Context) error {
+					project := cctx.Args().Get(0)
+					if project == "" {
+						return fmt.Errorf("<project> is required")
+					}
+					ctx, ll, _, err := makeDeps(cctx)
+					if err != nil {
+						return fmt.Errorf("preparing dependencies: %w", err)
+					}
+					httpClient, err := makeHttpClient(cctx)
+					if err != nil {
+						return fmt.Errorf("creating http client: %w", err)
+					}
+					client, meta, err := makeClient(cctx, httpClient, serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag)
+					if err != nil {
+						return fmt.Errorf("creating sync service client: %w", err)
+					}
+					ll.InfoContext(ctx, "creating project")
+					_, err = client.CreateProject(ctx, connect.NewRequest(&syncv1.CreateProjectRequest{
+						AccountId:   meta.AccountId,
+						ProjectName: project,
+					}))
+					if err != nil {
+						return fmt.Errorf("creating project: %w", err)
+					}
+					ll.InfoContext(ctx, "project created, set the project (SYNCY_PROJECT) for future requests")
+					return nil
+				},
+			},
+			{
 				Name:  "dirsum",
 				Usage: "builds the sum tree of a dir",
+				Flags: []cli.Flag{},
 				Action: func(cctx *cli.Context) error {
 					path := cctx.Args().First()
 					if path == "" {
@@ -289,10 +372,17 @@ func debugCommands(outFlag cli.StringFlag) cli.Command {
 						return fmt.Errorf("block size must fit in a uint32")
 					}
 
+					scratch := cctx.String(scratchLocalPath.Name)
+					if err := createDirIfNoExists(scratch); err != nil {
+						return fmt.Errorf("preparing scratch path: %w", err)
+					}
 					dir := filepath.Dir(path)
+					if err := createDirIfNoExists(dir); err != nil {
+						return fmt.Errorf("preparing dir path: %w", err)
+					}
+
 					root := filepath.Base(path)
-					fs := os.DirFS(dir).(blobdb.FS)
-					blob := blobdb.NewLocalFS(fs)
+					blob := blobdb.NewLocalFS(dir, scratch)
 
 					ll.Info("starting trace of filesystem from path", slog.String("path", path))
 					sum, err := dirsync.TraceSink(ctx, root, blob)
@@ -654,7 +744,7 @@ func debugCommands(outFlag cli.StringFlag) cli.Command {
 					if err != nil {
 						return fmt.Errorf("creating http client: %w", err)
 					}
-					client, err := makeClient(cctx, httpClient, serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag)
+					client, meta, err := makeClient(cctx, httpClient, serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag)
 					if err != nil {
 						return fmt.Errorf("creating sync service client: %w", err)
 					}
@@ -667,7 +757,7 @@ func debugCommands(outFlag cli.StringFlag) cli.Command {
 						return fmt.Errorf("block size must fit in a uint32")
 					}
 
-					sink, err := syncclient.ClientAdapter(client, blockSize)
+					sink, err := syncclient.ClientAdapter(client, meta, blockSize)
 					if err != nil {
 						return fmt.Errorf("configuring sync service client: %w", err)
 					}
@@ -683,9 +773,11 @@ func debugCommands(outFlag cli.StringFlag) cli.Command {
 						return fmt.Errorf("stating file at <path>: %w", err)
 					}
 
+					dir := filepath.Dir(path)
+
 					err = sink.CreateFile(
 						ctx,
-						typesv1.PathFromString(path),
+						typesv1.PathFromString(dir),
 						typesv1.FileInfoFromFS(fi),
 						f,
 					)
@@ -754,7 +846,7 @@ func makeClient(
 	serverAddrFlag cli.StringFlag,
 	serverPortFlag cli.StringFlag,
 	serverPathFlag cli.StringFlag,
-) (syncv1connect.SyncServiceClient, error) {
+) (syncv1connect.SyncServiceClient, *typesv1.ReqMeta, error) {
 	baseURL := url.URL{
 		Scheme: cctx.String(serverSchemeFlag.Name),
 		Host: net.JoinHostPort(
@@ -763,5 +855,32 @@ func makeClient(
 		),
 		Path: cctx.String(serverPathFlag.Name),
 	}
-	return syncv1connect.NewSyncServiceClient(httpClient, baseURL.String()), nil
+	req := &typesv1.ReqMeta{
+		AccountId:   stringFlagOrEnvVar(cctx, accountIDFlag),
+		ProjectName: stringFlagOrEnvVar(cctx, projectNameFlag),
+	}
+	println("account id is " + req.AccountId)
+	println("project name is " + req.ProjectName)
+
+	return syncv1connect.NewSyncServiceClient(httpClient, baseURL.String()), req, nil
+}
+
+func createDirIfNoExists(path string) error {
+	f, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return os.MkdirAll(path, 0755)
+	} else if !f.IsDir() {
+		return fmt.Errorf("%q is not a dir", path)
+	}
+	if err != nil {
+		return fmt.Errorf("preparing scratch path: %w", err)
+	}
+	return nil
+}
+
+func stringFlagOrEnvVar(cctx *cli.Context, flag cli.StringFlag) string {
+	if cctx.IsSet(flag.Name) {
+		return cctx.String(flag.Name)
+	}
+	return os.Getenv(flag.EnvVar)
 }

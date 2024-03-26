@@ -33,6 +33,12 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// SyncServiceCreateAccountProcedure is the fully-qualified name of the SyncService's CreateAccount
+	// RPC.
+	SyncServiceCreateAccountProcedure = "/svc.sync.v1.SyncService/CreateAccount"
+	// SyncServiceCreateProjectProcedure is the fully-qualified name of the SyncService's CreateProject
+	// RPC.
+	SyncServiceCreateProjectProcedure = "/svc.sync.v1.SyncService/CreateProject"
 	// SyncServiceStatProcedure is the fully-qualified name of the SyncService's Stat RPC.
 	SyncServiceStatProcedure = "/svc.sync.v1.SyncService/Stat"
 	// SyncServiceListDirProcedure is the fully-qualified name of the SyncService's ListDir RPC.
@@ -50,17 +56,22 @@ const (
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
 var (
-	syncServiceServiceDescriptor            = v1.File_svc_sync_v1_service_proto.Services().ByName("SyncService")
-	syncServiceStatMethodDescriptor         = syncServiceServiceDescriptor.Methods().ByName("Stat")
-	syncServiceListDirMethodDescriptor      = syncServiceServiceDescriptor.Methods().ByName("ListDir")
-	syncServiceGetSignatureMethodDescriptor = syncServiceServiceDescriptor.Methods().ByName("GetSignature")
-	syncServiceCreateMethodDescriptor       = syncServiceServiceDescriptor.Methods().ByName("Create")
-	syncServicePatchMethodDescriptor        = syncServiceServiceDescriptor.Methods().ByName("Patch")
-	syncServiceDeletesMethodDescriptor      = syncServiceServiceDescriptor.Methods().ByName("Deletes")
+	syncServiceServiceDescriptor             = v1.File_svc_sync_v1_service_proto.Services().ByName("SyncService")
+	syncServiceCreateAccountMethodDescriptor = syncServiceServiceDescriptor.Methods().ByName("CreateAccount")
+	syncServiceCreateProjectMethodDescriptor = syncServiceServiceDescriptor.Methods().ByName("CreateProject")
+	syncServiceStatMethodDescriptor          = syncServiceServiceDescriptor.Methods().ByName("Stat")
+	syncServiceListDirMethodDescriptor       = syncServiceServiceDescriptor.Methods().ByName("ListDir")
+	syncServiceGetSignatureMethodDescriptor  = syncServiceServiceDescriptor.Methods().ByName("GetSignature")
+	syncServiceCreateMethodDescriptor        = syncServiceServiceDescriptor.Methods().ByName("Create")
+	syncServicePatchMethodDescriptor         = syncServiceServiceDescriptor.Methods().ByName("Patch")
+	syncServiceDeletesMethodDescriptor       = syncServiceServiceDescriptor.Methods().ByName("Deletes")
 )
 
 // SyncServiceClient is a client for the svc.sync.v1.SyncService service.
 type SyncServiceClient interface {
+	// mgmt
+	CreateAccount(context.Context, *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.CreateAccountResponse], error)
+	CreateProject(context.Context, *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error)
 	// info
 	Stat(context.Context, *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error)
 	ListDir(context.Context, *connect.Request[v1.ListDirRequest]) (*connect.Response[v1.ListDirResponse], error)
@@ -82,6 +93,18 @@ type SyncServiceClient interface {
 func NewSyncServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) SyncServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &syncServiceClient{
+		createAccount: connect.NewClient[v1.CreateAccountRequest, v1.CreateAccountResponse](
+			httpClient,
+			baseURL+SyncServiceCreateAccountProcedure,
+			connect.WithSchema(syncServiceCreateAccountMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
+		createProject: connect.NewClient[v1.CreateProjectRequest, v1.CreateProjectResponse](
+			httpClient,
+			baseURL+SyncServiceCreateProjectProcedure,
+			connect.WithSchema(syncServiceCreateProjectMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
 		stat: connect.NewClient[v1.StatRequest, v1.StatResponse](
 			httpClient,
 			baseURL+SyncServiceStatProcedure,
@@ -123,12 +146,24 @@ func NewSyncServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // syncServiceClient implements SyncServiceClient.
 type syncServiceClient struct {
-	stat         *connect.Client[v1.StatRequest, v1.StatResponse]
-	listDir      *connect.Client[v1.ListDirRequest, v1.ListDirResponse]
-	getSignature *connect.Client[v1.GetSignatureRequest, v1.GetSignatureResponse]
-	create       *connect.Client[v1.CreateRequest, v1.CreateResponse]
-	patch        *connect.Client[v1.PatchRequest, v1.PatchResponse]
-	deletes      *connect.Client[v1.DeletesRequest, v1.DeletesResponse]
+	createAccount *connect.Client[v1.CreateAccountRequest, v1.CreateAccountResponse]
+	createProject *connect.Client[v1.CreateProjectRequest, v1.CreateProjectResponse]
+	stat          *connect.Client[v1.StatRequest, v1.StatResponse]
+	listDir       *connect.Client[v1.ListDirRequest, v1.ListDirResponse]
+	getSignature  *connect.Client[v1.GetSignatureRequest, v1.GetSignatureResponse]
+	create        *connect.Client[v1.CreateRequest, v1.CreateResponse]
+	patch         *connect.Client[v1.PatchRequest, v1.PatchResponse]
+	deletes       *connect.Client[v1.DeletesRequest, v1.DeletesResponse]
+}
+
+// CreateAccount calls svc.sync.v1.SyncService.CreateAccount.
+func (c *syncServiceClient) CreateAccount(ctx context.Context, req *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.CreateAccountResponse], error) {
+	return c.createAccount.CallUnary(ctx, req)
+}
+
+// CreateProject calls svc.sync.v1.SyncService.CreateProject.
+func (c *syncServiceClient) CreateProject(ctx context.Context, req *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error) {
+	return c.createProject.CallUnary(ctx, req)
 }
 
 // Stat calls svc.sync.v1.SyncService.Stat.
@@ -163,6 +198,9 @@ func (c *syncServiceClient) Deletes(ctx context.Context, req *connect.Request[v1
 
 // SyncServiceHandler is an implementation of the svc.sync.v1.SyncService service.
 type SyncServiceHandler interface {
+	// mgmt
+	CreateAccount(context.Context, *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.CreateAccountResponse], error)
+	CreateProject(context.Context, *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error)
 	// info
 	Stat(context.Context, *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error)
 	ListDir(context.Context, *connect.Request[v1.ListDirRequest]) (*connect.Response[v1.ListDirResponse], error)
@@ -180,6 +218,18 @@ type SyncServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewSyncServiceHandler(svc SyncServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	syncServiceCreateAccountHandler := connect.NewUnaryHandler(
+		SyncServiceCreateAccountProcedure,
+		svc.CreateAccount,
+		connect.WithSchema(syncServiceCreateAccountMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
+	syncServiceCreateProjectHandler := connect.NewUnaryHandler(
+		SyncServiceCreateProjectProcedure,
+		svc.CreateProject,
+		connect.WithSchema(syncServiceCreateProjectMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
 	syncServiceStatHandler := connect.NewUnaryHandler(
 		SyncServiceStatProcedure,
 		svc.Stat,
@@ -218,6 +268,10 @@ func NewSyncServiceHandler(svc SyncServiceHandler, opts ...connect.HandlerOption
 	)
 	return "/svc.sync.v1.SyncService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case SyncServiceCreateAccountProcedure:
+			syncServiceCreateAccountHandler.ServeHTTP(w, r)
+		case SyncServiceCreateProjectProcedure:
+			syncServiceCreateProjectHandler.ServeHTTP(w, r)
 		case SyncServiceStatProcedure:
 			syncServiceStatHandler.ServeHTTP(w, r)
 		case SyncServiceListDirProcedure:
@@ -238,6 +292,14 @@ func NewSyncServiceHandler(svc SyncServiceHandler, opts ...connect.HandlerOption
 
 // UnimplementedSyncServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedSyncServiceHandler struct{}
+
+func (UnimplementedSyncServiceHandler) CreateAccount(context.Context, *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.CreateAccountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.CreateAccount is not implemented"))
+}
+
+func (UnimplementedSyncServiceHandler) CreateProject(context.Context, *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.CreateProject is not implemented"))
+}
 
 func (UnimplementedSyncServiceHandler) Stat(context.Context, *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.Stat is not implemented"))

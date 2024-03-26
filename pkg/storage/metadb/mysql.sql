@@ -8,8 +8,10 @@ DROP TABLE pending_files;
 
 CREATE TABLE accounts (
     `id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `name` VARCHAR(255) NOT NULL,
     `public_id` VARCHAR(255) NOT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE (`name`),
     UNIQUE (`public_id`)
 );
 

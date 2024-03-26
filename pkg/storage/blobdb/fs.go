@@ -18,8 +18,8 @@ type Blob interface {
 	Stat(context.Context, string) (*typesv1.FileInfo, bool, error)
 	ListDir(context.Context, string) ([]*typesv1.FileInfo, bool, error)
 	GetSignature(ctx context.Context) (*typesv1.DirSum, error)
-	CreatePath(ctx context.Context, filename string, isDir bool, fn func(w io.Writer) error) error
-	PatchPath(ctx context.Context, filename string, isDir bool, sum *typesv1.FileSum, fn func(orig io.ReadSeeker, w io.Writer) error) error
+	CreatePath(ctx context.Context, filename string, isDir bool, fn CreateFunc) (blake3_64_256_sum []byte, err error)
+	PatchPath(ctx context.Context, filename string, isDir bool, sum *typesv1.FileSum, fn PatchFunc) (blake3_64_256_sum []byte, err error)
 	DeletePaths(ctx context.Context, filenames []string) error
 }
 
@@ -101,12 +101,14 @@ func (lfs *LocalFS) GetFileSum(ctx context.Context, filename string) (*typesv1.F
 	return fs, true, nil
 }
 
-func (lfs *LocalFS) CreatePath(ctx context.Context, path string, isDir bool, fn func(w io.Writer) error) error {
+type CreateFunc func(w io.Writer) (blake3_64_256_sum []byte, err error)
+
+func (lfs *LocalFS) CreatePath(ctx context.Context, path string, isDir bool, fn CreateFunc) (blake3_64_256_sum []byte, err error) {
 	endPath := filepath.Join(lfs.root, path)
 
 	unlock, locked := lfs.takeLock(path)
 	if locked {
-		return fmt.Errorf("path is already locked by another request, try again later")
+		return nil, fmt.Errorf("path is already locked by another request, try again later")
 	}
 	defer unlock()
 
@@ -115,60 +117,57 @@ func (lfs *LocalFS) CreatePath(ctx context.Context, path string, isDir bool, fn 
 		// requester dictate our local file access policies
 		err := os.Mkdir(endPath, 0755)
 		if err != nil {
-			return fmt.Errorf("creating dir: %w", err)
+			return nil, fmt.Errorf("creating dir: %w", err)
 		}
-		return nil
+		return nil, nil
 	}
 	return lfs.withAtomicFileSwap(path, fn)
 }
 
-func (lfs *LocalFS) PatchPath(ctx context.Context, path string, isDir bool, wantSum *typesv1.FileSum, fn func(orig io.ReadSeeker, w io.Writer) error) error {
+type PatchFunc func(orig io.ReadSeeker, w io.Writer) (blake3_64_256_sum []byte, err error)
+
+func (lfs *LocalFS) PatchPath(ctx context.Context, path string, isDir bool, wantSum *typesv1.FileSum, fn PatchFunc) (blake3_64_256_sum []byte, err error) {
+	if isDir {
+		// nothing to do since we only care about the existence/absence of dirs,
+		// the metadata is stored elsewhere (mod time, mode, etc)
+		return nil, nil
+	}
+
 	endPath := filepath.Join(lfs.root, path)
 
 	unlock, locked := lfs.takeLock(path)
 	if locked {
-		return fmt.Errorf("path is already locked by another request, try again later")
+		return nil, fmt.Errorf("path is already locked by another request, try again later")
 	}
 	defer unlock()
 
-	if isDir {
-		// we don't use `fi` because we don't want to let
-		// requester dictate our local file access policies
-		err := os.Mkdir(endPath, 0755)
-		if err == os.ErrExist {
-		} else if err != nil {
-			return fmt.Errorf("creating dir: %w", err)
-		}
-		return nil
-	}
-
 	origf, err := os.Open(endPath)
 	if err != nil {
-		return fmt.Errorf("opening original file: %w", err)
+		return nil, fmt.Errorf("opening original file: %w", err)
 	}
 	defer origf.Close()
 	gotSum, err := dirsync.ComputeFileSum(ctx, origf)
 	if err != nil {
-		return fmt.Errorf("computing file sum: %w", err)
+		return nil, fmt.Errorf("computing file sum: %w", err)
 	}
 	if !proto.Equal(wantSum, gotSum) {
-		return fmt.Errorf("file sum mismatch, the file you're trying to patch is not the same, or has changed, since computing the submitted filesum")
+		return nil, fmt.Errorf("file sum mismatch, the file you're trying to patch is not the same, or has changed, since computing the submitted filesum")
 	}
 
 	_, err = origf.Seek(0, io.SeekStart)
 	if err != nil {
-		return fmt.Errorf("seeking back to begining of original file: %w", err)
+		return nil, fmt.Errorf("seeking back to begining of original file: %w", err)
 	}
-	return lfs.withAtomicFileSwap(path, func(w io.Writer) error {
+	return lfs.withAtomicFileSwap(path, func(w io.Writer) (blake3_64_256_sum []byte, err error) {
 		return fn(origf, w)
 	})
 }
 
-func (lfs *LocalFS) withAtomicFileSwap(filename string, fn func(w io.Writer) error) error {
+func (lfs *LocalFS) withAtomicFileSwap(filename string, fn CreateFunc) (blake3_64_256_sum []byte, _ error) {
 	endPath := filepath.Join(lfs.root, filename)
 	tmpFile, err := os.CreateTemp(lfs.scratch, filename)
 	if err != nil {
-		return fmt.Errorf("creating temp file in scratch location: %w", err)
+		return nil, fmt.Errorf("creating temp file in scratch location: %w", err)
 	}
 	success := false
 	defer func() {
@@ -177,16 +176,17 @@ func (lfs *LocalFS) withAtomicFileSwap(filename string, fn func(w io.Writer) err
 			_ = os.Remove(tmpFile.Name())
 		}
 	}()
-	if err := fn(tmpFile); err != nil {
-		return fmt.Errorf("writing to scratch file: %w", err)
+	sum, err := fn(tmpFile)
+	if err != nil {
+		return nil, fmt.Errorf("writing to scratch file: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("flushing scratch file: %w", err)
+		return nil, fmt.Errorf("flushing scratch file: %w", err)
 	}
 	if err := os.Rename(tmpFile.Name(), endPath); err != nil {
-		return fmt.Errorf("atomic swap of old file with new file: %w", err)
+		return nil, fmt.Errorf("atomic swap of old file with new file: %w", err)
 	}
-	return nil
+	return sum, nil
 }
 
 func (lfs *LocalFS) DeletePaths(ctx context.Context, paths []string) error {
