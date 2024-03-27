@@ -123,6 +123,26 @@ func (hdl *Handler) GetSignature(ctx context.Context, req *connect.Request[v1.Ge
 	}), nil
 }
 
+func (hdl *Handler) GetFileSum(ctx context.Context, req *connect.Request[v1.GetFileSumRequest]) (*connect.Response[v1.GetFileSumResponse], error) {
+	ll := hdl.ll.WithGroup("GetFileSum")
+	ll.InfoContext(ctx, "received GetFileSum req")
+	defer ll.InfoContext(ctx, "done GetFileSum")
+
+	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
+	sig, ok, err := hdl.db.GetFileSum(ctx, accountPubID, projectID, req.Msg.Path)
+	if err != nil {
+		ll.ErrorContext(ctx, "getting filesum from DB", slog.Any("err", err))
+		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
+	}
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such file"))
+	}
+
+	return connect.NewResponse(&v1.GetFileSumResponse{
+		Sum: sig,
+	}), nil
+}
+
 func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error) {
 	ll := hdl.ll.WithGroup("Create")
 	ll.InfoContext(ctx, "received Create req")

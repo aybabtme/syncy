@@ -386,8 +386,8 @@ func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 					}
 
 					ll.Info("done tracing",
-						slog.Uint64("total_size_bytes", sum.Size),
-						slog.String("total_size", humanize.IBytes(sum.Size)),
+						slog.Uint64("total_size_bytes", sum.Info.Size),
+						slog.String("total_size", humanize.IBytes(sum.Info.Size)),
 					)
 					printer.Emit(sum)
 
@@ -423,7 +423,12 @@ func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 					defer f.Close()
 					ll.Info("computing file sum", slog.String("path", path))
 
-					sum, err := dirsync.ComputeFileSum(ctx, f)
+					fi, err := f.Stat()
+					if err != nil {
+						return fmt.Errorf("stating file %q: %w", path, err)
+					}
+
+					sum, err := dirsync.ComputeFileSum(ctx, f, typesv1.FileInfoFromFS(fi))
 					if err != nil {
 						return fmt.Errorf("computing file sum: %w", err)
 					}
@@ -495,7 +500,7 @@ func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 					}
 
 					ll.Info("computing file sum for destination", slog.String("path", dst))
-					sinkSum, err := dirsync.ComputeFileSum(ctx, dstf)
+					sinkSum, err := dirsync.ComputeFileSum(ctx, dstf, typesv1.FileInfoFromFS(dstfi))
 					if err != nil {
 						return fmt.Errorf("computing file sum for destination: %w", err)
 					}
@@ -687,8 +692,13 @@ func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 					}
 					defer dstf.Close()
 
+					dstfi, err := dstf.Stat()
+					if err != nil {
+						return fmt.Errorf("stating <dst> %q: %w", dst, err)
+					}
+
 					ll.Info("computing file sum")
-					sum, err := dirsync.ComputeFileSum(ctx, dstf)
+					sum, err := dirsync.ComputeFileSum(ctx, dstf, typesv1.FileInfoFromFS(dstfi))
 					if err != nil {
 						return fmt.Errorf("computing file sum of <dst>: %w", err)
 					}
@@ -791,6 +801,96 @@ func debugCommands(outFlag, scratchLocalPath cli.StringFlag) cli.Command {
 						ctx,
 						typesv1.PathFromString(dir),
 						typesv1.FileInfoFromFS(fi),
+						f,
+					)
+					if err != nil {
+						return fmt.Errorf("creating file at on remote: %w", err)
+					}
+
+					printer.Emit("done")
+					return nil
+				},
+			},
+			{
+				Name:  "patch-file",
+				Usage: "patch a file on a remote backend",
+				Flags: []cli.Flag{serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag, blockSizeFlag},
+				Action: func(cctx *cli.Context) error {
+					base := cctx.Args().Get(0)
+					if base == "" {
+						return fmt.Errorf("<base> is required")
+					}
+
+					path := cctx.Args().Get(1)
+					if path == "" {
+						return fmt.Errorf("<path> is required")
+					}
+					if err := os.Chdir(base); err != nil {
+						return fmt.Errorf("can't chdir to %q: %w", base, err)
+					}
+
+					ctx, ll, printer, err := makeDeps(cctx)
+					if err != nil {
+						return fmt.Errorf("preparing dependencies: %w", err)
+					}
+					httpClient, err := makeHttpClient(cctx)
+					if err != nil {
+						return fmt.Errorf("creating http client: %w", err)
+					}
+					client, meta, err := makeClient(cctx, httpClient, serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFlag)
+					if err != nil {
+						return fmt.Errorf("creating sync service client: %w", err)
+					}
+
+					blockSize := cctx.Uint(blockSizeFlag.Name)
+					if blockSize < 128 {
+						return fmt.Errorf("minimum block size is 128")
+					}
+					if blockSize >= math.MaxUint32 {
+						return fmt.Errorf("block size must fit in a uint32")
+					}
+
+					sink, err := syncclient.ClientAdapter(ll.WithGroup("sink"), client, meta, blockSize)
+					if err != nil {
+						return fmt.Errorf("configuring sync service client: %w", err)
+					}
+
+					ll.InfoContext(ctx, "opening local file", slog.String("path", path))
+					f, err := os.Open(path)
+					if err != nil {
+						return fmt.Errorf("opening file at <path>: %w", err)
+					}
+					defer f.Close()
+					fi, err := f.Stat()
+					if err != nil {
+						return fmt.Errorf("stating file at <path>: %w", err)
+					}
+
+					dir := filepath.Dir(path)
+					if dir == "." {
+						dir = ""
+					}
+					dir, err = filepath.Rel(base, dir)
+					if err != nil {
+						return fmt.Errorf("preparing request: %w", err)
+					}
+					var fileSum *typesv1.FileSum
+					if !fi.IsDir() {
+						res, err := client.GetFileSum(ctx, connect.NewRequest(&syncv1.GetFileSumRequest{
+							Meta: meta, Path: typesv1.PathFromString(path),
+						}))
+						if err != nil {
+							return fmt.Errorf("getting file sum from remote: %w", err)
+						}
+						fileSum = res.Msg.Sum
+					}
+
+					ll.InfoContext(ctx, "creating file on remote", slog.String("path", path))
+					err = sink.PatchFile(
+						ctx,
+						typesv1.PathFromString(dir),
+						typesv1.FileInfoFromFS(fi),
+						fileSum,
 						f,
 					)
 					if err != nil {

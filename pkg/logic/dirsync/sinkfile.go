@@ -1,6 +1,7 @@
 package dirsync
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -11,14 +12,10 @@ import (
 	"lukechampine.com/blake3"
 )
 
-func ComputeFileSum(ctx context.Context, file fs.File) (*typesv1.FileSum, error) {
-	fi, err := file.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("reading fileinfo: %w", err)
-	}
-	pfi := typesv1.FileInfoFromFS(fi)
-	return computeFileSum(ctx, file, pfi, blockSize(fi.Size()))
+func ComputeFileSum(ctx context.Context, file fs.File, fi *typesv1.FileInfo) (*typesv1.FileSum, error) {
+	return computeFileSum(ctx, file, fi, blockSize(fi.Size))
 }
+
 func computeFileSum(
 	ctx context.Context,
 	file io.Reader,
@@ -60,4 +57,57 @@ loop:
 		buz.Reset()
 	}
 	return out, nil
+}
+
+func FileMatchesFileSum(ctx context.Context, sum *typesv1.FileSum, file fs.File, size uint64) (bool, error) {
+	return fileMatchesFileSum(ctx, sum, file, blockSize(size))
+}
+
+func fileMatchesFileSum(
+	ctx context.Context,
+	sum *typesv1.FileSum,
+	file io.Reader,
+	blockSize uint32,
+) (bool, error) {
+	buz := buzhash.NewBuzHash(blockSize)
+	more := true
+	block := make([]byte, blockSize) // TODO: use sync.Pool
+loop:
+	for i := 0; more; i++ {
+
+		if i >= len(sum.SumBlocks) {
+			return false, nil // new file has more blocks, so clearly it's not equal
+		}
+
+		n, err := io.ReadFull(file, block)
+		switch err {
+		case io.EOF, io.ErrUnexpectedEOF:
+			more = false
+		case nil:
+			// continue
+		default:
+			return false, fmt.Errorf("reading block %d: %w", i, err)
+		}
+		if n == 0 {
+			break loop
+		}
+
+		expectBlock := sum.SumBlocks[i]
+
+		_, _ = buz.Write(block[:n])
+
+		wantFastSig := expectBlock.FastSig
+		gotFastSig := buz.Sum32()
+		if wantFastSig != gotFastSig {
+			return false, nil // fast sig didn't match
+		}
+		wantStrongSig := typesv1.Array32ByteFromUint256(expectBlock.StrongSig)
+		gotStrongSig := blake3.Sum256(block[:n])
+		if !bytes.Equal(wantStrongSig[:], gotStrongSig[:]) {
+			return false, nil // fast sig didn't match
+		}
+		// reset the reused parts
+		buz.Reset()
+	}
+	return true, nil
 }

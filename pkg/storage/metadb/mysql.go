@@ -22,9 +22,12 @@ type Metadata interface {
 	Stat(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) (*typesv1.FileInfo, bool, error)
 	ListDir(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error)
 	GetSignature(ctx context.Context, accountPublicID, projectPublicID string) (*typesv1.DirSum, error)
+	GetFileSum(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path, compute ComputeFileSumAction) (*typesv1.FileSum, bool, error)
 	CreatePathTx(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, fn FileSaveAction) error
 	PatchPathTx(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, sum *typesv1.FileSum, fn FileSaveAction) error
 }
+
+type ComputeFileSumAction func(filename string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error)
 
 type FileSaveAction func(filepath string) (blake3_64_256_sum []byte, err error)
 
@@ -76,7 +79,11 @@ func filepathName(accountPublicID, projectPublicID string, path *typesv1.Path, f
 	if path == nil {
 		return filepath.Join(accountPublicID, projectPublicID)
 	}
-	return filepath.Join(accountPublicID, projectPublicID, filepath.Join(path.Elements...), fi.Name)
+	if fi == nil {
+		return filepath.Join(accountPublicID, projectPublicID, filepath.Join(path.Elements...))
+	} else {
+		return filepath.Join(accountPublicID, projectPublicID, filepath.Join(path.Elements...), fi.Name)
+	}
 }
 
 func (ms *MySQL) Stat(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) (*typesv1.FileInfo, bool, error) {
@@ -85,27 +92,39 @@ func (ms *MySQL) Stat(ctx context.Context, accountPublicID, projectPublicID stri
 		slog.String("project_pub_id", projectPublicID),
 		slog.String("path", typesv1.StringFromPath(path)),
 	)
+	ll.InfoContext(ctx, "Stat")
 	ll.InfoContext(ctx, "finding project DB ID")
 	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectPublicID)
 	if err != nil || !ok {
 		return nil, false, err
 	}
 	ll.InfoContext(ctx, "found project", slog.Uint64("project_id", projectID))
+	return ms.stat(ctx, ll, projectID, path)
+}
+
+func (ms *MySQL) stat(ctx context.Context, ll *slog.Logger, projectID uint64, path *typesv1.Path) (*typesv1.FileInfo, bool, error) {
 	if len(path.Elements) == 0 {
 		return nil, false, fmt.Errorf("can't stat a dir, use `listDir` instead")
 	}
 	var parentDirID *uint64
 	if dir := typesv1.DirOf(path); len(dir.Elements) > 0 {
 		ll.InfoContext(ctx, "searching for parent dir DB ID")
+		var (
+			ok  bool
+			err error
+		)
 		parentDirID, ok, err = findDirID(ctx, ll, ms.db, projectID, dir)
-		if err != nil || !ok {
-			return nil, false, err
+		if err != nil {
+			return nil, false, fmt.Errorf("finding parent dir: %w", err)
+		} else if !ok {
+			return nil, ok, nil
 		}
 		ll = ll.With(slog.Uint64("dir_id", *parentDirID))
 		ll.InfoContext(ctx, "found parent dir")
 	}
 	filename := path.Elements[len(path.Elements)-1]
-	return getFileInfo(ctx, ms.db, projectID, parentDirID, filename)
+	ll.InfoContext(ctx, "looking for filename in dir", slog.String("filename", filename))
+	return getFileInfo(ctx, ll, ms.db, projectID, parentDirID, filename)
 }
 
 func (ms *MySQL) ListDir(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) ([]*typesv1.FileInfo, bool, error) {
@@ -125,8 +144,10 @@ func (ms *MySQL) ListDir(ctx context.Context, accountPublicID, projectPublicID s
 	if len(path.Elements) > 0 {
 		ll.InfoContext(ctx, "searching for parent dir DB ID")
 		dirID, ok, err = findDirID(ctx, ll, ms.db, projectID, path)
-		if err != nil || !ok {
+		if err != nil {
 			return nil, false, fmt.Errorf("finding parent dir: %w", err)
+		} else if !ok {
+			return nil, ok, nil
 		}
 		ll = ll.With(slog.Uint64("dir_id", *dirID))
 		ll.InfoContext(ctx, "found parent dir")
@@ -263,27 +284,27 @@ func getFileID(ctx context.Context, querier querier, projectID uint64, parentDir
 	return id, true, nil
 }
 
-func getFileInfo(ctx context.Context, querier querier, projectID uint64, parentDirID *uint64, filename string) (*typesv1.FileInfo, bool, error) {
-	var row *sql.Row
+func getFileInfo(ctx context.Context, ll *slog.Logger, querier querier, projectID uint64, parentDirID *uint64, filename string) (*typesv1.FileInfo, bool, error) {
+	var (
+		q   string
+		row *sql.Row
+	)
 	if parentDirID != nil {
-		row = querier.QueryRowContext(ctx,
-			"SELECT "+fileInfoColumns+" FROM files\n"+
-				"WHERE `project_id` = ? AND\n"+
-				"      `dir_id` = ? AND\n"+
-				"      `name` = ?\n"+
-				"LIMIT 1",
-			projectID, *parentDirID, filename,
-		)
+		q = "SELECT " + fileInfoColumns + " FROM files\n" +
+			"WHERE `project_id` = ? AND\n" +
+			"      `dir_id` = ? AND\n" +
+			"      `name` = ?\n" +
+			"LIMIT 1"
+		row = querier.QueryRowContext(ctx, q, projectID, *parentDirID, filename)
 	} else {
-		row = querier.QueryRowContext(ctx,
-			"SELECT "+fileInfoColumns+" FROM files\n"+
-				"WHERE `project_id` = ? AND\n"+
-				"      `dir_id` IS NULL AND\n"+
-				"      `name` = ?\n"+
-				"LIMIT 1",
-			projectID, filename,
-		)
+		q = "SELECT " + fileInfoColumns + " FROM files\n" +
+			"WHERE `project_id` = ? AND\n" +
+			"      `dir_id` IS NULL AND\n" +
+			"      `name` = ?\n" +
+			"LIMIT 1"
+		row = querier.QueryRowContext(ctx, q, projectID, filename)
 	}
+	ll.InfoContext(ctx, "looking up file", slog.String("query", q))
 	return scanFileInfo(row)
 }
 
@@ -333,6 +354,44 @@ func (ms *MySQL) GetSignature(ctx context.Context, accountPublicID, projectPubli
 	)
 	ll.InfoContext(ctx, "GetSignature")
 	panic("todo")
+}
+
+func (ms *MySQL) GetFileSum(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fn ComputeFileSumAction) (*typesv1.FileSum, bool, error) {
+	ll := ms.ll.With(
+		slog.String("account_pub_id", accountPublicID),
+		slog.String("project_pub_id", projectPublicID),
+		slog.String("path", typesv1.StringFromPath(path)),
+	)
+	ll.InfoContext(ctx, "GetFileSum")
+	ll.InfoContext(ctx, "finding project DB ID")
+	projectID, ok, err := findProjectID(ctx, ms.db, accountPublicID, projectPublicID)
+	if err != nil {
+		return nil, false, fmt.Errorf("finding project ID: %w", err)
+	}
+	if !ok {
+		return nil, false, fmt.Errorf("project doesn't exist, create it first")
+	}
+	ll.InfoContext(ctx, "found project", slog.Uint64("project_id", projectID))
+
+	ll.InfoContext(ctx, "looking for file")
+	fi, ok, err := ms.stat(ctx, ll, projectID, path)
+	if err != nil {
+		return nil, ok, fmt.Errorf("stating file: %w", err)
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	filepath := filepathName(accountPublicID, projectPublicID, path, nil)
+	ll.InfoContext(ctx, "file found, computing filesum", slog.String("filepath", filepath))
+	sum, ok, err := fn(filepath, fi)
+	if err != nil {
+		return nil, ok, fmt.Errorf("computing filesum: %w", err)
+	}
+	if !ok {
+		ll.ErrorContext(ctx, "internal inconsistency, file doesn't exist", slog.String("filepath", filepath))
+		return nil, false, fmt.Errorf("computing filesum (internal): %w", err)
+	}
+	return sum, true, nil
 }
 
 func (ms *MySQL) CreatePathTx(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, fn FileSaveAction) error {
@@ -553,7 +612,7 @@ func finishPendingPatchFile(ctx context.Context, db *sql.DB, pendingFileID uint6
 				"	`mod_time` = ?,\n"+
 				"	`mode` = ?,\n"+
 				"	`blake3_64_256_sum` = ?\n"+
-				"WHERE file_id = ? LIMIT 1",
+				"WHERE id = ? LIMIT 1",
 			fi.Size,
 			fi.ModTime.AsTime().Unix(),
 			fi.Mode,

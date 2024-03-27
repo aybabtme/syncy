@@ -17,10 +17,12 @@ service SyncService {
   // info
   rpc Stat(StatRequest) returns (StatResponse) {}
   rpc ListDir(ListDirRequest) returns (ListDirResponse) {}
-  
+
+
   // sync
   // TODO: split in a separate service definition
   rpc GetSignature(GetSignatureRequest) returns (GetSignatureResponse) {}
+  rpc GetFileSum(GetFileSumRequest) returns (GetFileSumResponse) {}
   rpc Create(stream CreateRequest) returns (CreateResponse) {}
   rpc Patch(stream PatchRequest) returns (PatchResponse) {}
   rpc Deletes(DeletesRequest) returns (DeletesResponse) {}
@@ -82,6 +84,16 @@ message GetSignatureRequest {
 message GetSignatureResponse {
   types.v1.ResMeta meta = 1000;
   types.v1.DirSum root = 1;
+}
+
+message GetFileSumRequest {
+  types.v1.ReqMeta meta = 1000;
+  types.v1.Path path = 1;
+}
+
+message GetFileSumResponse {
+  types.v1.ResMeta meta = 1000;
+  types.v1.FileSum sum = 1;
 }
 
 enum Hasher {

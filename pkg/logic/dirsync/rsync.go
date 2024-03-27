@@ -14,24 +14,20 @@ import (
 
 type PatchOp struct {
 	Path *typesv1.Path
+	Info *typesv1.FileInfo
+	// oneof: Dir or File
 	Dir  *DirPatchOp
 	File *FilePatchOp
 }
 
 type DirPatchOp struct {
-	DirPatches []DirPatch
-}
-
-type DirPatch struct {
-	SetMode *uint32
 }
 
 type FilePatchOp struct {
-	S       *typesv1.FileSum
-	S_prime *typesv1.FileBlockPatch
+	Sum *typesv1.FileSum
 }
 
-func blockSize(filesize int64) uint32 {
+func blockSize(filesize uint64) uint32 {
 	if filesize < 490000 {
 		return 700
 	}

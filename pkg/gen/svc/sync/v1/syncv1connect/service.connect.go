@@ -46,6 +46,8 @@ const (
 	// SyncServiceGetSignatureProcedure is the fully-qualified name of the SyncService's GetSignature
 	// RPC.
 	SyncServiceGetSignatureProcedure = "/svc.sync.v1.SyncService/GetSignature"
+	// SyncServiceGetFileSumProcedure is the fully-qualified name of the SyncService's GetFileSum RPC.
+	SyncServiceGetFileSumProcedure = "/svc.sync.v1.SyncService/GetFileSum"
 	// SyncServiceCreateProcedure is the fully-qualified name of the SyncService's Create RPC.
 	SyncServiceCreateProcedure = "/svc.sync.v1.SyncService/Create"
 	// SyncServicePatchProcedure is the fully-qualified name of the SyncService's Patch RPC.
@@ -62,6 +64,7 @@ var (
 	syncServiceStatMethodDescriptor          = syncServiceServiceDescriptor.Methods().ByName("Stat")
 	syncServiceListDirMethodDescriptor       = syncServiceServiceDescriptor.Methods().ByName("ListDir")
 	syncServiceGetSignatureMethodDescriptor  = syncServiceServiceDescriptor.Methods().ByName("GetSignature")
+	syncServiceGetFileSumMethodDescriptor    = syncServiceServiceDescriptor.Methods().ByName("GetFileSum")
 	syncServiceCreateMethodDescriptor        = syncServiceServiceDescriptor.Methods().ByName("Create")
 	syncServicePatchMethodDescriptor         = syncServiceServiceDescriptor.Methods().ByName("Patch")
 	syncServiceDeletesMethodDescriptor       = syncServiceServiceDescriptor.Methods().ByName("Deletes")
@@ -78,6 +81,7 @@ type SyncServiceClient interface {
 	// sync
 	// TODO: split in a separate service definition
 	GetSignature(context.Context, *connect.Request[v1.GetSignatureRequest]) (*connect.Response[v1.GetSignatureResponse], error)
+	GetFileSum(context.Context, *connect.Request[v1.GetFileSumRequest]) (*connect.Response[v1.GetFileSumResponse], error)
 	Create(context.Context) *connect.ClientStreamForClient[v1.CreateRequest, v1.CreateResponse]
 	Patch(context.Context) *connect.ClientStreamForClient[v1.PatchRequest, v1.PatchResponse]
 	Deletes(context.Context, *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error)
@@ -123,6 +127,12 @@ func NewSyncServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(syncServiceGetSignatureMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
+		getFileSum: connect.NewClient[v1.GetFileSumRequest, v1.GetFileSumResponse](
+			httpClient,
+			baseURL+SyncServiceGetFileSumProcedure,
+			connect.WithSchema(syncServiceGetFileSumMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
 		create: connect.NewClient[v1.CreateRequest, v1.CreateResponse](
 			httpClient,
 			baseURL+SyncServiceCreateProcedure,
@@ -151,6 +161,7 @@ type syncServiceClient struct {
 	stat          *connect.Client[v1.StatRequest, v1.StatResponse]
 	listDir       *connect.Client[v1.ListDirRequest, v1.ListDirResponse]
 	getSignature  *connect.Client[v1.GetSignatureRequest, v1.GetSignatureResponse]
+	getFileSum    *connect.Client[v1.GetFileSumRequest, v1.GetFileSumResponse]
 	create        *connect.Client[v1.CreateRequest, v1.CreateResponse]
 	patch         *connect.Client[v1.PatchRequest, v1.PatchResponse]
 	deletes       *connect.Client[v1.DeletesRequest, v1.DeletesResponse]
@@ -181,6 +192,11 @@ func (c *syncServiceClient) GetSignature(ctx context.Context, req *connect.Reque
 	return c.getSignature.CallUnary(ctx, req)
 }
 
+// GetFileSum calls svc.sync.v1.SyncService.GetFileSum.
+func (c *syncServiceClient) GetFileSum(ctx context.Context, req *connect.Request[v1.GetFileSumRequest]) (*connect.Response[v1.GetFileSumResponse], error) {
+	return c.getFileSum.CallUnary(ctx, req)
+}
+
 // Create calls svc.sync.v1.SyncService.Create.
 func (c *syncServiceClient) Create(ctx context.Context) *connect.ClientStreamForClient[v1.CreateRequest, v1.CreateResponse] {
 	return c.create.CallClientStream(ctx)
@@ -207,6 +223,7 @@ type SyncServiceHandler interface {
 	// sync
 	// TODO: split in a separate service definition
 	GetSignature(context.Context, *connect.Request[v1.GetSignatureRequest]) (*connect.Response[v1.GetSignatureResponse], error)
+	GetFileSum(context.Context, *connect.Request[v1.GetFileSumRequest]) (*connect.Response[v1.GetFileSumResponse], error)
 	Create(context.Context, *connect.ClientStream[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error)
 	Patch(context.Context, *connect.ClientStream[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error)
 	Deletes(context.Context, *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error)
@@ -248,6 +265,12 @@ func NewSyncServiceHandler(svc SyncServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(syncServiceGetSignatureMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
+	syncServiceGetFileSumHandler := connect.NewUnaryHandler(
+		SyncServiceGetFileSumProcedure,
+		svc.GetFileSum,
+		connect.WithSchema(syncServiceGetFileSumMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
 	syncServiceCreateHandler := connect.NewClientStreamHandler(
 		SyncServiceCreateProcedure,
 		svc.Create,
@@ -278,6 +301,8 @@ func NewSyncServiceHandler(svc SyncServiceHandler, opts ...connect.HandlerOption
 			syncServiceListDirHandler.ServeHTTP(w, r)
 		case SyncServiceGetSignatureProcedure:
 			syncServiceGetSignatureHandler.ServeHTTP(w, r)
+		case SyncServiceGetFileSumProcedure:
+			syncServiceGetFileSumHandler.ServeHTTP(w, r)
 		case SyncServiceCreateProcedure:
 			syncServiceCreateHandler.ServeHTTP(w, r)
 		case SyncServicePatchProcedure:
@@ -311,6 +336,10 @@ func (UnimplementedSyncServiceHandler) ListDir(context.Context, *connect.Request
 
 func (UnimplementedSyncServiceHandler) GetSignature(context.Context, *connect.Request[v1.GetSignatureRequest]) (*connect.Response[v1.GetSignatureResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.GetSignature is not implemented"))
+}
+
+func (UnimplementedSyncServiceHandler) GetFileSum(context.Context, *connect.Request[v1.GetFileSumRequest]) (*connect.Response[v1.GetFileSumResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.GetFileSum is not implemented"))
 }
 
 func (UnimplementedSyncServiceHandler) Create(context.Context, *connect.ClientStream[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error) {

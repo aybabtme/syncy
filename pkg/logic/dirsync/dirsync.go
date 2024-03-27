@@ -10,6 +10,7 @@ import (
 
 	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 	"github.com/hashicorp/go-multierror"
+	"google.golang.org/protobuf/proto"
 )
 
 const enforceAssertions = true // TODO: turn this off when confident enough
@@ -61,8 +62,7 @@ func Sync(ctx context.Context, root string, src Source, sink Sink, params Params
 		go func() {
 			defer wg.Done()
 			withSem(ctx, sem, func() {
-				_ = patchOp
-				// err := Rsync(ctx, src, sink, patchOp)
+				err := patch(ctx, src, sink, patchOp)
 				trySendErr(ctx, errc, err)
 			})
 		}()
@@ -161,7 +161,7 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *Sour
 	}
 	for _, sinkDir := range sink.Dirs {
 		// set(Sink_dir) - set(Src_dir)
-		if !srcHasDirNamed(src, sinkDir.Name) {
+		if !srcHasDirNamed(src, sinkDir.Info.Name) {
 			op := deleteDirOp(path, sink)
 			deleteOps = append(deleteOps, op)
 		}
@@ -176,7 +176,9 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *Sour
 			continue
 		}
 		// set(Src_file) ∩ set(Sink_file)
-		if diff := makeFileDiff(srcFile, sinkFile); diff != nil {
+		if diff, err := makeFileDiff(ctx, fs, path, srcFile, sinkFile); err != nil {
+			return nil, nil, nil, fmt.Errorf("computing diff for file %q: %w", srcFile.Info.Name, err)
+		} else if diff != nil {
 			op := patchFileOp(path, diff)
 			patchOps = append(patchOps, op)
 		}
@@ -215,10 +217,10 @@ func createOpsForDir(path *typesv1.Path, dir *SourceDir) []CreateOp {
 func sinkHasDirNamed(sink *typesv1.DirSum, name string) (*typesv1.DirSum, bool) {
 	// relies on the fact that entries are sorted
 	assert("must be sorted", slices.IsSortedFunc(sink.Dirs, func(a, b *typesv1.DirSum) int {
-		return strings.Compare(a.Name, b.Name)
+		return strings.Compare(a.Info.Name, b.Info.Name)
 	}))
 	i, found := slices.BinarySearchFunc(sink.Dirs, name, func(dir *typesv1.DirSum, name string) int {
-		return strings.Compare(dir.Name, name)
+		return strings.Compare(dir.Info.Name, name)
 	})
 	if !found {
 		return nil, false
@@ -271,7 +273,7 @@ func createDirOp(path *typesv1.Path, dir *SourceDir) CreateOp {
 
 func deleteDirOp(path *typesv1.Path, sink *typesv1.DirSum) DeleteOp {
 	return DeleteOp{
-		Path: typesv1.PathJoin(path, sink.Name),
+		Path: typesv1.PathJoin(path, sink.Info.Name),
 	}
 }
 
@@ -283,8 +285,10 @@ func patchDirOp(path *typesv1.Path, dirname string, diff *DirPatchOp) PatchOp {
 }
 
 func makeDirDiff(src *SourceDir, sink *typesv1.DirSum) *DirPatchOp {
-	out := &DirPatchOp{}
-	return out
+	if !proto.Equal(src.Info, sink.Info) {
+		return &DirPatchOp{}
+	}
+	return nil
 }
 
 func createFileOp(path *typesv1.Path, file *SourceFile) CreateOp {
@@ -307,9 +311,29 @@ func patchFileOp(path *typesv1.Path, diff *FilePatchOp) PatchOp {
 	}
 }
 
-func makeFileDiff(src *SourceFile, sink *typesv1.FileSum) *FilePatchOp {
-	out := &FilePatchOp{}
-	return out
+func makeFileDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *SourceFile, sink *typesv1.FileSum) (*FilePatchOp, error) {
+	// compute mod time, size
+	if !proto.Equal(src.Info, sink) {
+		// obviously changed, we don't need to sum the content to figure as such
+		return &FilePatchOp{
+			Sum: sink,
+		}, nil
+	}
+	filepath := typesv1.PathJoin(path, src.Info.Name)
+	f, err := fs.Open(typesv1.StringFromPath(filepath))
+	if err != nil {
+		return nil, fmt.Errorf("opening source file: %w", err)
+	}
+	defer f.Close()
+
+	matches, err := FileMatchesFileSum(ctx, sink, f, src.Info.Size)
+	if err != nil {
+		return nil, fmt.Errorf("opening source file: %w", err)
+	}
+	if !matches {
+		return &FilePatchOp{Sum: sink}, nil
+	}
+	return nil, nil
 }
 
 func upload(ctx context.Context, A Source, B Sink, createOp CreateOp) error {
@@ -329,4 +353,28 @@ func upload(ctx context.Context, A Source, B Sink, createOp CreateOp) error {
 		return fmt.Errorf("creating file on sink: %w", err)
 	}
 	return nil
+}
+
+func patch(ctx context.Context, A Source, B Sink, patchOp PatchOp) error {
+	if patchOp.Dir != nil {
+		// patch a dir
+		panic("todo")
+		return nil
+	}
+
+	path := typesv1.PathJoin(patchOp.Path, patchOp.File.Sum.Info.Name)
+	fileDiff := patchOp.File
+
+	f, err := A.Open(typesv1.StringFromPath(path))
+	if err != nil {
+		return fmt.Errorf("opening %q on source: %w", path, err)
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stating %q on source: %w", path, err)
+	}
+
+	return B.PatchFile(ctx, patchOp.Path, typesv1.FileInfoFromFS(fi), fileDiff.Sum, f)
 }

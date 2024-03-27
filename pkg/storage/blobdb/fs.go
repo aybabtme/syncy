@@ -19,6 +19,7 @@ type Blob interface {
 	Stat(context.Context, string) (*typesv1.FileInfo, bool, error)
 	ListDir(context.Context, string) ([]*typesv1.FileInfo, bool, error)
 	GetSignature(ctx context.Context) (*typesv1.DirSum, error)
+	GetFileSum(ctx context.Context, filename string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error)
 	CreateProjectRootPath(ctx context.Context, projectDir string) error
 	CreatePath(ctx context.Context, filename string, isDir bool, fn CreateFunc) (blake3_64_256_sum []byte, err error)
 	PatchPath(ctx context.Context, filename string, isDir bool, sum *typesv1.FileSum, fn PatchFunc) (blake3_64_256_sum []byte, err error)
@@ -93,8 +94,9 @@ func (lfs *LocalFS) GetSignature(ctx context.Context) (*typesv1.DirSum, error) {
 	return dirsync.TraceSink(ctx, "", lfs)
 }
 
-func (lfs *LocalFS) GetFileSum(ctx context.Context, filename string) (*typesv1.FileSum, bool, error) {
+func (lfs *LocalFS) GetFileSum(ctx context.Context, filename string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error) {
 	filepath := filepath.Join(lfs.root, filename)
+	println("HELLO   " + filepath)
 	f, err := os.Open(filepath)
 	if os.IsNotExist(err) {
 		return nil, false, nil
@@ -102,7 +104,7 @@ func (lfs *LocalFS) GetFileSum(ctx context.Context, filename string) (*typesv1.F
 		return nil, false, fmt.Errorf("localfs: opening %q: %w", filepath, err)
 	}
 	defer f.Close()
-	fs, err := dirsync.ComputeFileSum(ctx, f)
+	fs, err := dirsync.ComputeFileSum(ctx, f, fi)
 	if err != nil {
 		return nil, true, fmt.Errorf("localfs: computing file sum: %w", err)
 	}
@@ -171,7 +173,7 @@ func (lfs *LocalFS) PatchPath(ctx context.Context, path string, isDir bool, want
 		return nil, fmt.Errorf("opening original file: %w", err)
 	}
 	defer origf.Close()
-	gotSum, err := dirsync.ComputeFileSum(ctx, origf)
+	gotSum, err := dirsync.ComputeFileSum(ctx, origf, wantSum.Info)
 	if err != nil {
 		return nil, fmt.Errorf("computing file sum: %w", err)
 	}
