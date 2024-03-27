@@ -38,7 +38,8 @@ func Sync(ctx context.Context, root string, src Source, sink Sink, params Params
 		return fmt.Errorf("getting signatures from sink: %w", err)
 	}
 
-	createOps, deleteOps, patchOps, err := ComputeTreeDiff(ctx, typesv1.PathFromString(root), src, sigs)
+	rootp := typesv1.PathFromString(root)
+	createOps, deleteOps, patchOps, err := ComputeTreeDiff(ctx, rootp, src, sigs)
 	if err != nil {
 		return fmt.Errorf("computing tree diff: %w", err)
 	}
@@ -67,13 +68,15 @@ func Sync(ctx context.Context, root string, src Source, sink Sink, params Params
 			})
 		}()
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := sink.DeleteFiles(ctx, deleteOps); err != nil {
-			trySendErr(ctx, errc, err)
-		}
-	}()
+	if len(deleteOps) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := sink.DeleteFiles(ctx, deleteOps); err != nil {
+				trySendErr(ctx, errc, err)
+			}
+		}()
+	}
 	go func() {
 		wg.Wait()
 		close(errc)
@@ -117,7 +120,8 @@ func withSem(ctx context.Context, sem chan struct{}, fn func()) {
 }
 
 func ComputeTreeDiff(ctx context.Context, root *typesv1.Path, src Source, sinkDir *typesv1.DirSum) ([]CreateOp, []DeleteOp, []PatchOp, error) {
-	srcDir, err := TraceSource(ctx, typesv1.StringFromPath(root), src)
+	rootp := typesv1.StringFromPath(root)
+	srcDir, err := TraceSource(ctx, rootp, src)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("enumerating files on source: %w", err)
 	}
@@ -337,8 +341,8 @@ func makeFileDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *Source
 }
 
 func upload(ctx context.Context, A Source, B Sink, createOp CreateOp) error {
-	path := typesv1.PathJoin(createOp.ParentDir, createOp.FileInfo.Name)
-	f, err := A.Open(typesv1.StringFromPath(path))
+	path := typesv1.StringFromPath(typesv1.PathJoin(createOp.ParentDir, createOp.FileInfo.Name))
+	f, err := A.Open(path)
 	if err != nil {
 		return fmt.Errorf("opening %q on source: %w", path, err)
 	}

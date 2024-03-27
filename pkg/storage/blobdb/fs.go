@@ -16,14 +16,14 @@ import (
 )
 
 type Blob interface {
-	Stat(context.Context, string) (*typesv1.FileInfo, bool, error)
-	ListDir(context.Context, string) ([]*typesv1.FileInfo, bool, error)
-	GetSignature(ctx context.Context) (*typesv1.DirSum, error)
-	GetFileSum(ctx context.Context, filename string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error)
+	Stat(ctx context.Context, projectDir string, name string) (*typesv1.FileInfo, bool, error)
+	ListDir(ctx context.Context, projectDir string, name string) ([]*typesv1.FileInfo, bool, error)
+	GetSignature(ctx context.Context, projectDir string) (*typesv1.DirSum, error)
+	GetFileSum(ctx context.Context, projectDir string, filename string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error)
 	CreateProjectRootPath(ctx context.Context, projectDir string) error
-	CreatePath(ctx context.Context, filename string, isDir bool, fn CreateFunc) (blake3_64_256_sum []byte, err error)
-	PatchPath(ctx context.Context, filename string, isDir bool, sum *typesv1.FileSum, fn PatchFunc) (blake3_64_256_sum []byte, err error)
-	DeletePaths(ctx context.Context, filenames []string) error
+	CreatePath(ctx context.Context, projectDir string, filename string, isDir bool, fn CreateFunc) (blake3_64_256_sum []byte, err error)
+	PatchPath(ctx context.Context, projectDir string, filename string, isDir bool, sum *typesv1.FileSum, fn PatchFunc) (blake3_64_256_sum []byte, err error)
+	DeletePath(ctx context.Context, projectDir string, filename string) error
 }
 
 var _ Blob = (*LocalFS)(nil)
@@ -54,8 +54,9 @@ func NewLocalFS(root, scratch string) (*LocalFS, error) {
 	return &LocalFS{root: root, scratch: scratch, locks: make(map[string]struct{})}, nil
 }
 
-func (lfs *LocalFS) Stat(ctx context.Context, path string) (*typesv1.FileInfo, bool, error) {
-	filename := filepath.Join(lfs.root, path)
+func (lfs *LocalFS) Stat(ctx context.Context, projectDir, path string) (*typesv1.FileInfo, bool, error) {
+	rootDir := filepath.Join(lfs.root, projectDir)
+	filename := filepath.Join(rootDir, path)
 	fi, err := os.Stat(filename)
 	if os.IsNotExist(err) {
 		return nil, false, nil
@@ -66,8 +67,9 @@ func (lfs *LocalFS) Stat(ctx context.Context, path string) (*typesv1.FileInfo, b
 	return typesv1.FileInfoFromFS(fi), true, nil
 }
 
-func (lfs *LocalFS) ListDir(ctx context.Context, path string) ([]*typesv1.FileInfo, bool, error) {
-	filename := filepath.Join(lfs.root, path)
+func (lfs *LocalFS) ListDir(ctx context.Context, projectDir, path string) ([]*typesv1.FileInfo, bool, error) {
+	rootDir := filepath.Join(lfs.root, projectDir)
+	filename := filepath.Join(rootDir, path)
 	dirs, err := os.ReadDir(filename)
 	if os.IsNotExist(err) {
 		return nil, false, nil
@@ -90,13 +92,13 @@ func (lfs *LocalFS) ListDir(ctx context.Context, path string) ([]*typesv1.FileIn
 	return out, true, nil
 }
 
-func (lfs *LocalFS) GetSignature(ctx context.Context) (*typesv1.DirSum, error) {
-	return dirsync.TraceSink(ctx, "", lfs)
+func (lfs *LocalFS) GetSignature(ctx context.Context, projectDir string) (*typesv1.DirSum, error) {
+	return dirsync.TraceSink(ctx, projectDir, lfs)
 }
 
-func (lfs *LocalFS) GetFileSum(ctx context.Context, filename string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error) {
-	filepath := filepath.Join(lfs.root, filename)
-	println("HELLO   " + filepath)
+func (lfs *LocalFS) GetFileSum(ctx context.Context, projectDir, filename string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error) {
+	rootDir := filepath.Join(lfs.root, projectDir)
+	filepath := filepath.Join(rootDir, filename)
 	f, err := os.Open(filepath)
 	if os.IsNotExist(err) {
 		return nil, false, nil
@@ -111,10 +113,10 @@ func (lfs *LocalFS) GetFileSum(ctx context.Context, filename string, fi *typesv1
 	return fs, true, nil
 }
 
-func (lfs *LocalFS) CreateProjectRootPath(ctx context.Context, path string) error {
-	endPath := filepath.Join(lfs.root, path)
+func (lfs *LocalFS) CreateProjectRootPath(ctx context.Context, projectDir string) error {
+	endPath := filepath.Join(lfs.root, projectDir)
 
-	unlock, locked := lfs.takeLock(path)
+	unlock, locked := lfs.takeLock(endPath)
 	if !locked {
 		return fmt.Errorf("path is already locked by another request, try again later")
 	}
@@ -130,10 +132,11 @@ func (lfs *LocalFS) CreateProjectRootPath(ctx context.Context, path string) erro
 
 type CreateFunc func(w io.Writer) (blake3_64_256_sum []byte, err error)
 
-func (lfs *LocalFS) CreatePath(ctx context.Context, path string, isDir bool, fn CreateFunc) (blake3_64_256_sum []byte, err error) {
-	endPath := filepath.Join(lfs.root, path)
+func (lfs *LocalFS) CreatePath(ctx context.Context, projectDir string, path string, isDir bool, fn CreateFunc) (blake3_64_256_sum []byte, err error) {
+	rootDir := filepath.Join(lfs.root, projectDir)
+	endPath := filepath.Join(rootDir, path)
 
-	unlock, locked := lfs.takeLock(path)
+	unlock, locked := lfs.takeLock(endPath)
 	if !locked {
 		return nil, fmt.Errorf("path is already locked by another request, try again later")
 	}
@@ -153,16 +156,17 @@ func (lfs *LocalFS) CreatePath(ctx context.Context, path string, isDir bool, fn 
 
 type PatchFunc func(orig io.ReadSeeker, w io.Writer) (blake3_64_256_sum []byte, err error)
 
-func (lfs *LocalFS) PatchPath(ctx context.Context, path string, isDir bool, wantSum *typesv1.FileSum, fn PatchFunc) (blake3_64_256_sum []byte, err error) {
+func (lfs *LocalFS) PatchPath(ctx context.Context, projectDir, path string, isDir bool, wantSum *typesv1.FileSum, fn PatchFunc) (blake3_64_256_sum []byte, err error) {
 	if isDir {
 		// nothing to do since we only care about the existence/absence of dirs,
 		// the metadata is stored elsewhere (mod time, mode, etc)
 		return nil, nil
 	}
 
-	endPath := filepath.Join(lfs.root, path)
+	rootDir := filepath.Join(lfs.root, projectDir)
+	endPath := filepath.Join(rootDir, path)
 
-	unlock, locked := lfs.takeLock(path)
+	unlock, locked := lfs.takeLock(endPath)
 	if !locked {
 		return nil, fmt.Errorf("path is already locked by another request, try again later")
 	}
@@ -217,22 +221,16 @@ func (lfs *LocalFS) withAtomicFileSwap(filename string, fn CreateFunc) (blake3_6
 	return sum, nil
 }
 
-func (lfs *LocalFS) DeletePaths(ctx context.Context, paths []string) error {
-	for _, path := range paths {
-		lfs.deletePath(ctx, path)
-	}
-	return nil
-}
-
-func (lfs *LocalFS) deletePath(ctx context.Context, path string) error {
-	unlock, locked := lfs.takeLock(path)
+func (lfs *LocalFS) DeletePath(ctx context.Context, projectDir string, path string) error {
+	rootDir := filepath.Join(lfs.root, projectDir)
+	endPath := filepath.Join(rootDir, path)
+	unlock, locked := lfs.takeLock(endPath)
 
 	if locked {
 		return fmt.Errorf("path is already locked by another request, try again later")
 	}
 	defer unlock()
 
-	endPath := filepath.Join(lfs.root, path)
 	return os.Remove(endPath)
 }
 

@@ -57,6 +57,9 @@ func (hdl *Handler) CreateProject(ctx context.Context, req *connect.Request[v1.C
 	}
 	publicID, err := hdl.db.CreateProject(ctx, req.Msg.AccountId, req.Msg.ProjectName)
 	if err != nil {
+		if err == storage.ErrAccountDoesntExist {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		ll.ErrorContext(ctx, "creating project in DB", slog.String("err", err.Error()))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
 	}
@@ -73,6 +76,9 @@ func (hdl *Handler) Stat(ctx context.Context, req *connect.Request[v1.StatReques
 	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
 	fi, ok, err := hdl.db.Stat(ctx, accountPubID, projectID, req.Msg.GetPath())
 	if err != nil {
+		if err == storage.ErrProjectDoesntExist {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		ll.ErrorContext(ctx, "getting stat from DB", slog.String("err", err.Error()))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
 	}
@@ -94,6 +100,9 @@ func (hdl *Handler) ListDir(ctx context.Context, req *connect.Request[v1.ListDir
 	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
 	dirEntries, ok, err := hdl.db.ListDir(ctx, accountPubID, projectID, req.Msg.GetPath())
 	if err != nil {
+		if err == storage.ErrProjectDoesntExist {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		ll.ErrorContext(ctx, "getting listdir from DB", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
 	}
@@ -114,6 +123,9 @@ func (hdl *Handler) GetSignature(ctx context.Context, req *connect.Request[v1.Ge
 	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
 	sig, err := hdl.db.GetSignature(ctx, accountPubID, projectID)
 	if err != nil {
+		if err == storage.ErrProjectDoesntExist {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		ll.ErrorContext(ctx, "getting signature from DB", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
 	}
@@ -131,6 +143,9 @@ func (hdl *Handler) GetFileSum(ctx context.Context, req *connect.Request[v1.GetF
 	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
 	sig, ok, err := hdl.db.GetFileSum(ctx, accountPubID, projectID, req.Msg.Path)
 	if err != nil {
+		if err == storage.ErrProjectDoesntExist {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		ll.ErrorContext(ctx, "getting filesum from DB", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("try again later"))
 	}
@@ -152,6 +167,9 @@ func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.
 
 	var req v1.CreateRequest
 	if err := conn.Receive(&req); err != nil {
+		if err == storage.ErrProjectDoesntExist {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		ll.Error("receiving step message `creating`", slog.Any("err", err))
 		return nil, err
 	}
@@ -220,6 +238,9 @@ func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.P
 
 	var req v1.PatchRequest
 	if err := conn.Receive(&req); err != nil {
+		if err == storage.ErrProjectDoesntExist {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		ll.Error("receiving step message `opening`", slog.Any("err", err))
 		return nil, err
 	}
@@ -298,6 +319,9 @@ func (hdl *Handler) Deletes(ctx context.Context, req *connect.Request[v1.Deletes
 
 	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
 	if err := hdl.db.DeletePaths(ctx, accountPubID, projectID, req.Msg.Paths); err != nil {
+		if err == storage.ErrProjectDoesntExist {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		ll.ErrorContext(ctx, "couldn't delete paths", slog.Any("err", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("unable to delete paths"))
 	}

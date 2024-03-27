@@ -53,7 +53,7 @@ var (
 	}
 	maxParallelFileStreamFlag = cli.UintFlag{
 		Name:  "max.parallel_file_stream",
-		Value: 8,
+		Value: 1,
 		Usage: "max number of files being uploaded or patches in parallel at any given time",
 	}
 	blockSizeFlag = cli.UintFlag{
@@ -146,9 +146,23 @@ func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFla
 
 			ll.InfoContext(ctx, "preparing to sync", slog.String("path", path))
 
-			src := os.DirFS(path).(dirsync.Source)
+			dir := filepath.Dir(path)
+			if dir == "." {
+				dir = ""
+			}
+			base := filepath.Base(path)
 
-			err = dirsync.Sync(ctx, path, src, sink, syncParams)
+			src := os.DirFS(dir).(dirsync.Source)
+
+			dirs, err := src.ReadDir(base)
+			ll.InfoContext(ctx, "readirs",
+				slog.String("dir", dir),
+				slog.Any("dirs", dirs),
+				slog.String("base", base),
+				slog.Any("err", err),
+			)
+
+			err = dirsync.Sync(ctx, base, src, sink, syncParams)
 			if err != nil {
 				return fmt.Errorf("failed to sync: %w", err)
 			}

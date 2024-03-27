@@ -5,6 +5,27 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "syncd",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/syncyd/",
+            "cwd": "${workspaceFolder}",
+        },
+        {
+            "name": "sync /tmp/humanlog",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/syncy/",
+            "cwd": "${workspaceFolder}",
+            "args": ["sync", "/tmp/humanlog"],
+            "env": {
+                "SYNCY_ACCOUNT_ID": "j83WyocZUDWa",
+                "SYNCY_PROJECT_ID": "2l-oesnNSZWD",
+            }
+        },
+        {
             "name": "debug dirsum go-workflow",
             "type": "go",
             "request": "launch",

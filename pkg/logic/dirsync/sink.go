@@ -16,21 +16,24 @@ type Sink interface {
 }
 
 type SumDB interface {
-	Stat(ctx context.Context, path string) (*typesv1.FileInfo, bool, error)
+	Stat(ctx context.Context, namespace string, path string) (*typesv1.FileInfo, bool, error)
 	// ListDir returns entries in a dir, ordered by name.
-	ListDir(ctx context.Context, path string) ([]*typesv1.FileInfo, bool, error)
-	GetFileSum(ctx context.Context, path string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error)
+	ListDir(ctx context.Context, namespace string, path string) ([]*typesv1.FileInfo, bool, error)
+	GetFileSum(ctx context.Context, namespace string, path string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error)
 }
 
 func TraceSink(ctx context.Context, root string, sumDB SumDB) (*typesv1.DirSum, error) {
-	return trace(ctx, nil, root, sumDB)
+	return trace(ctx, root, nil, "", sumDB)
 }
 
-func trace(ctx context.Context, parent *typesv1.Path, base string, sumDB SumDB) (*typesv1.DirSum, error) {
+func trace(ctx context.Context, namespace string, parent *typesv1.Path, base string, sumDB SumDB) (*typesv1.DirSum, error) {
 	path := typesv1.PathJoin(parent, base)
-	fi, _, err := sumDB.Stat(ctx, typesv1.StringFromPath(path))
+	fi, _, err := sumDB.Stat(ctx, namespace, typesv1.StringFromPath(path))
 	if err != nil {
 		return nil, fmt.Errorf("stating dir: %w", err)
+	}
+	if base == "" {
+		fi.Name = "" // strip it
 	}
 
 	dir := &typesv1.DirSum{
@@ -38,7 +41,7 @@ func trace(ctx context.Context, parent *typesv1.Path, base string, sumDB SumDB) 
 		Info: fi,
 	}
 
-	fsEntries, ok, err := sumDB.ListDir(ctx, typesv1.StringFromPath(path))
+	fsEntries, ok, err := sumDB.ListDir(ctx, namespace, typesv1.StringFromPath(path))
 	if err != nil {
 		return nil, fmt.Errorf("reading dir: %w", err)
 	}
@@ -50,7 +53,7 @@ func trace(ctx context.Context, parent *typesv1.Path, base string, sumDB SumDB) 
 	for _, fsEntry := range fsEntries {
 		if fsEntry.IsDir {
 			path := typesv1.PathJoin(parent, base)
-			child, err := trace(ctx, path, fsEntry.Name, sumDB)
+			child, err := trace(ctx, namespace, path, fsEntry.Name, sumDB)
 			if err != nil {
 				return nil, fmt.Errorf("tracing %q, %w", typesv1.StringFromPath(path), err)
 			}
@@ -58,7 +61,7 @@ func trace(ctx context.Context, parent *typesv1.Path, base string, sumDB SumDB) 
 			dir.Info.Size += child.Info.Size
 		} else {
 			path := typesv1.PathJoin(parent, base)
-			file, ok, err := sumDB.GetFileSum(ctx, typesv1.StringFromPath(path), fsEntry)
+			file, ok, err := sumDB.GetFileSum(ctx, namespace, typesv1.StringFromPath(path), fsEntry)
 			if err != nil {
 				return nil, fmt.Errorf("looking up filesum for file %q in %q: %w", fsEntry.Name, typesv1.StringFromPath(path), err)
 			}

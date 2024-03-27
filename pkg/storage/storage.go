@@ -10,6 +10,11 @@ import (
 	"github.com/aybabtme/syncy/pkg/storage/metadb"
 )
 
+var (
+	ErrProjectDoesntExist = metadb.ErrProjectDoesntExist
+	ErrAccountDoesntExist = metadb.ErrAccountDoesntExist
+)
+
 type DB interface {
 	CreateAccount(ctx context.Context, accountName string) (accountPublicID string, err error)
 	CreateProject(ctx context.Context, accountPublicID, projectName string) (projectPublicID string, err error)
@@ -66,31 +71,35 @@ func (state *State) ListDir(ctx context.Context, accountPublicID, projectPublicI
 }
 
 func (state *State) GetSignature(ctx context.Context, accountPublicID, projectPublicID string) (*typesv1.DirSum, error) {
-	return state.meta.GetSignature(ctx, accountPublicID, projectPublicID)
+	return state.meta.GetSignature(ctx, accountPublicID, projectPublicID, func(root string) (*typesv1.DirSum, error) {
+		return state.blob.GetSignature(ctx, root)
+	})
 }
 
 func (state *State) GetFileSum(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) (*typesv1.FileSum, bool, error) {
-	return state.meta.GetFileSum(ctx, accountPublicID, projectPublicID, path, func(filename string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error) {
-		return state.blob.GetFileSum(ctx, filename, fi)
+	return state.meta.GetFileSum(ctx, accountPublicID, projectPublicID, path, func(projectDir, filename string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error) {
+		return state.blob.GetFileSum(ctx, projectDir, filename, fi)
 	})
 }
 
 func (state *State) CreatePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, fn blobdb.CreateFunc) error {
 	// todo: do it in a transaction for safe rollback in case of mid-flight failure
 	// todo: store all the FileInfo and full Path in metadata, only store filename + data in blobs
-	return state.meta.CreatePathTx(ctx, accountPublicID, projectPublicID, path, fi, func(filename string) (blake3_64_256_sum []byte, err error) {
-		return state.blob.CreatePath(ctx, filename, fi.IsDir, fn)
+	return state.meta.CreatePathTx(ctx, accountPublicID, projectPublicID, path, fi, func(projectDir, filename string) (blake3_64_256_sum []byte, err error) {
+		return state.blob.CreatePath(ctx, projectDir, filename, fi.IsDir, fn)
 	})
 }
 
 func (state *State) PatchPath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, sum *typesv1.FileSum, fn blobdb.PatchFunc) error {
 	// lookup by path, fi, and sum.
 	// sum in particular ensures that we're not using the wrong file as the original (one with new or stale data)
-	return state.meta.PatchPathTx(ctx, accountPublicID, projectPublicID, path, fi, sum, func(filename string) (blake3_64_256_sum []byte, err error) {
-		return state.blob.PatchPath(ctx, filename, fi.IsDir, sum, fn)
+	return state.meta.PatchPathTx(ctx, accountPublicID, projectPublicID, path, fi, sum, func(projectDir, filename string) (blake3_64_256_sum []byte, err error) {
+		return state.blob.PatchPath(ctx, projectDir, filename, fi.IsDir, sum, fn)
 	})
 }
 
 func (state *State) DeletePaths(ctx context.Context, accountPublicID, projectPublicID string, paths []*typesv1.Path) error {
-	panic("todo")
+	return state.meta.DeletePaths(ctx, accountPublicID, projectPublicID, paths, func(projectDir, filename string) error {
+		return state.blob.DeletePath(ctx, projectDir, filename)
+	})
 }
