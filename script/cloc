@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+set -eu
+
+root=$(git rev-parse --show-toplevel)
+
+function run_cloc() {
+    cd ${root}
+    cloc --not-match-d=testdata --not-match-d=pkg/gen --not-match-d=tmp .
+}
+
+function main() {
+    run_cloc
+}
+
+main
