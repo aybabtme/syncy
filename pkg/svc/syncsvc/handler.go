@@ -322,12 +322,12 @@ func (hdl *Handler) Delete(ctx context.Context, req *connect.Request[v1.DeleteRe
 	defer ll.InfoContext(ctx, "done Delete")
 
 	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
-	if err := hdl.db.DeletePath(ctx, accountPubID, projectID, req.Msg.Path); err != nil {
+	if err := hdl.db.DeletePath(ctx, accountPubID, projectID, req.Msg.Path, req.Msg.Info); err != nil {
 		if err == storage.ErrProjectDoesntExist {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		ll.ErrorContext(ctx, "couldn't delete paths", slog.Any("err", err))
-		return nil, connect.NewError(connect.CodeInternal, errors.New("unable to delete paths"))
+		return nil, connect.NewError(connect.CodeInternal, errors.New("unable to delete path"))
 	}
 
 	return connect.NewResponse(&v1.DeleteResponse{}), nil

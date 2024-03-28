@@ -26,14 +26,14 @@ type Metadata interface {
 	GetFileSum(ctx context.Context, accountPublicID, projectName string, path *typesv1.Path, compute ComputeFileSumAction) (*typesv1.FileSum, bool, error)
 	CreatePathTx(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, fn FileSaveAction) error
 	PatchPathTx(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, sum *typesv1.FileSum, fn FileSaveAction) error
-	DeletePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fn FileDeleteAction) error
+	DeletePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, fn FileDeleteAction) error
 }
 
 type ComputeFileSumAction func(projectDir, filename string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error)
 
 type FileSaveAction func(projectDir, filepath string) (blake3_64_256_sum []byte, err error)
 
-type FileDeleteAction func(projectDir, filepath string) error
+type FileDeleteAction func(projectDir, filepath string, fi *typesv1.FileInfo) error
 
 var _ Metadata = (*MySQL)(nil)
 
@@ -626,7 +626,7 @@ func (ms *MySQL) PatchPathTx(ctx context.Context, accountPublicID, projectPublic
 	return nil
 }
 
-func (ms *MySQL) DeletePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fn FileDeleteAction) error {
+func (ms *MySQL) DeletePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, fn FileDeleteAction) error {
 	ll := ms.ll.With(
 		slog.String("account_pub_id", accountPublicID),
 		slog.String("project_pub_id", projectPublicID),
@@ -643,11 +643,11 @@ func (ms *MySQL) DeletePath(ctx context.Context, accountPublicID, projectPublicI
 	projectDir := filepath.Join(accountPublicID, projectPublicID)
 	filepath := filepathName(path, nil)
 	err = withTx(ctx, ms.db, func(tx *sql.Tx) error {
-		err := deletePath(ctx, ll, tx, projectID, path)
+		err := deletePath(ctx, ll, tx, projectID, path, fi)
 		if err != nil {
 			return fmt.Errorf("deleting path in metadata: %w", err)
 		}
-		err = fn(projectDir, filepath)
+		err = fn(projectDir, filepath, fi)
 		if err != nil {
 			return fmt.Errorf("deleting from blobs: %w", err)
 		}
@@ -659,26 +659,120 @@ func (ms *MySQL) DeletePath(ctx context.Context, accountPublicID, projectPublicI
 	return nil
 }
 
-func deletePath(ctx context.Context, ll *slog.Logger, execer execer, projectID uint64, path *typesv1.Path) error {
+func deletePath(ctx context.Context, ll *slog.Logger, execer execer, projectID uint64, path *typesv1.Path, fi *typesv1.FileInfo) error {
 	n := len(path.Elements)
 	filename := path.Elements[n-1]
 	parentDirID, err := findParentDir(ctx, ll, execer, projectID, path)
 	if err != nil {
 		return fmt.Errorf("looking up file's parent dir: %w", err)
 	}
-	if parentDirID != nil {
-		_, err = execer.ExecContext(ctx, "DELETE FROM files WHERE `project_id` = ? AND `parent_dir` = ? AND `name` = ?",
-			projectID, parentDirID, filename,
-		)
+	if fi.IsDir {
+		err = deleteDirPath(ctx, ll, execer, projectID, parentDirID, filename)
 	} else {
-		_, err = execer.ExecContext(ctx, "DELETE FROM files WHERE `project_id` = ? AND `parent_dir` IS NULL AND `name` = ?",
-			projectID, filename,
-		)
+		err = deleteFilePath(ctx, ll, execer, projectID, parentDirID, filename)
 	}
 	if err != nil {
 		return fmt.Errorf("execing query: %w", err)
 	}
 	return nil
+}
+
+func getDirID(ctx context.Context, ll *slog.Logger, querier querier, projectID uint64, parentDirID *uint64, filename string) (uint64, error) {
+	var row *sql.Row
+	if parentDirID != nil {
+		row = querier.QueryRowContext(ctx, "SELECT `id` FROM dirs WHERE `project_id` = ? AND `parent_id` = ? AND `name` = ?",
+			projectID, parentDirID, filename,
+		)
+	} else {
+		row = querier.QueryRowContext(ctx, "SELECT `id` FROM dirs WHERE `project_id` = ? AND `parent_id` IS NULL AND `name` = ?",
+			projectID, filename,
+		)
+	}
+	var id uint64
+	if err := row.Scan(&id); err != nil {
+		return id, fmt.Errorf("querying id of dir: %w", err)
+	}
+	return id, nil
+}
+
+func listDirIDs(ctx context.Context, ll *slog.Logger, querier querier, projectID uint64, dirID uint64) ([]uint64, error) {
+	rows, err := querier.QueryContext(ctx, "SELECT `id` FROM dirs WHERE `project_id` = ? AND `parent_id` = ?",
+		projectID, dirID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying: %w", err)
+	}
+	var ids []uint64
+	for rows.Next() {
+		var id uint64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scanning row: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating rows: %v", err)
+	}
+	return ids, nil
+}
+
+func deleteDirPath(ctx context.Context, ll *slog.Logger, execer execer, projectID uint64, parentDirID *uint64, filename string) error {
+	dirID, err := getDirID(ctx, ll, execer, projectID, parentDirID, filename)
+	if err != nil {
+		return fmt.Errorf("resolving dir id: %w", err)
+	}
+
+	return recurseDeleteDir(ctx, ll, execer, projectID, dirID)
+}
+
+func recurseDeleteDir(ctx context.Context, ll *slog.Logger, execer execer, projectID uint64, dirID uint64) error {
+	// delete the files
+	if err := deleteFilesInDir(ctx, ll, execer, projectID, dirID); err != nil {
+		return fmt.Errorf("deleting files in dir %d: %w", dirID, err)
+	}
+
+	// delete the subdirs (recursively)
+	subDirs, err := listDirIDs(ctx, ll, execer, projectID, dirID)
+	if err != nil {
+		return fmt.Errorf("listing subdirs of %d: %w", dirID, err)
+	}
+	for _, subDirID := range subDirs {
+		if err := recurseDeleteDir(ctx, ll, execer, projectID, subDirID); err != nil {
+			return fmt.Errorf("recurse deleting subdir %d: %w", subDirID, err)
+		}
+	}
+	// delete yourself
+	_, err = execer.ExecContext(ctx, "DELETE FROM dirs WHERE `project_id` = ? AND `id` = ?",
+		projectID, dirID,
+	)
+	if err != nil {
+		return fmt.Errorf("deleting dir %d: %w", dirID, err)
+	}
+	return nil
+}
+
+func deleteFilesInDir(ctx context.Context, ll *slog.Logger, execer execer, projectID uint64, dirID uint64) error {
+	_, err := execer.ExecContext(ctx, "DELETE FROM files WHERE `project_id` = ? AND `dir_id` = ?",
+		projectID, dirID,
+	)
+	return err
+}
+
+func deleteFilePath(ctx context.Context, ll *slog.Logger, execer execer, projectID uint64, parentDirID *uint64, filename string) error {
+	var err error
+	if parentDirID != nil {
+		_, err = execer.ExecContext(ctx, "DELETE FROM files WHERE `project_id` = ? AND `dir_id` = ? AND `name` = ?",
+			projectID, parentDirID, filename,
+		)
+	} else {
+		_, err = execer.ExecContext(ctx, "DELETE FROM files WHERE `project_id` = ? AND `dir_id` IS NULL AND `name` = ?",
+			projectID, filename,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("execing delete from files: %w", err)
+	}
+	return err
 }
 
 func findParentDir(ctx context.Context, ll *slog.Logger, execer execer, projectID uint64, path *typesv1.Path) (*uint64, error) {
@@ -803,28 +897,28 @@ func updateDirInfo(ctx context.Context, execer execer, projectID uint64, parentD
 		_, err = execer.ExecContext(ctx,
 			"UPDATE dirs\n"+
 				"SET\n"+
-				"	name=?,\n"+
-				"	mod_time=?,\n"+
-				"	mode=?\n"+
+				"	`name`=?,\n"+
+				"	`mod_time_unix_ns`=?,\n"+
+				"	`mode`=?\n"+
 				"WHERE `project_id` = ? AND\n"+
 				"	`parent_id` = ? AND\n"+
 				"	`name` = ?\n"+
 				"LIMIT 1",
-			fi.Name, fi.ModTime.AsTime().Unix(), fi.Mode,
+			fi.Name, fi.ModTime.AsTime().UnixNano(), fi.Mode,
 			projectID, *parentDirID, name,
 		)
 	} else {
 		_, err = execer.ExecContext(ctx,
 			"UPDATE dirs\n"+
 				"SET\n"+
-				"	name=?,\n"+
-				"	mod_time=?,\n"+
-				"	mode=?\n"+
+				"	`name`=?,\n"+
+				"	`mod_time_unix_ns`=?,\n"+
+				"	`mode`=?\n"+
 				"WHERE `project_id` = ? AND\n"+
 				"	`parent_id` IS NULL AND\n"+
 				"	`name` = ?\n"+
 				"LIMIT 1",
-			fi.Name, fi.ModTime.AsTime().Unix(), fi.Mode,
+			fi.Name, fi.ModTime.AsTime().UnixNano(), fi.Mode,
 			projectID, name,
 		)
 	}

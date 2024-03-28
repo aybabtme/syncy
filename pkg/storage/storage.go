@@ -25,7 +25,7 @@ type DB interface {
 	GetFileSum(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) (*typesv1.FileSum, bool, error)
 	CreatePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, fn blobdb.CreateFunc) error
 	PatchPath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, sum *typesv1.FileSum, fn blobdb.PatchFunc) error
-	DeletePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) error
+	DeletePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo) error
 }
 
 var _ DB = (*State)(nil)
@@ -99,8 +99,8 @@ func (state *State) PatchPath(ctx context.Context, accountPublicID, projectPubli
 	})
 }
 
-func (state *State) DeletePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) error {
-	return state.meta.DeletePath(ctx, accountPublicID, projectPublicID, path, func(projectDir, filename string) error {
-		return state.blob.DeletePath(ctx, projectDir, filename)
+func (state *State) DeletePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo) error {
+	return state.meta.DeletePath(ctx, accountPublicID, projectPublicID, path, fi, func(projectDir, filename string, fi *typesv1.FileInfo) error {
+		return state.blob.DeletePath(ctx, projectDir, filename, fi.IsDir)
 	})
 }

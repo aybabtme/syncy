@@ -285,6 +285,7 @@ func (sk *Sink) DeleteFile(ctx context.Context, op dirsync.DeleteOp) error {
 	_, err := sk.client.Delete(ctx, connect.NewRequest(&syncv1.DeleteRequest{
 		Meta: sk.meta,
 		Path: op.Path,
+		Info: op.FileInfo,
 	}))
 	return err
 }

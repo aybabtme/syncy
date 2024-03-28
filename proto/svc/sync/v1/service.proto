@@ -153,6 +153,7 @@ message PatchResponse {
 message DeleteRequest {
   types.v1.ReqMeta meta = 1000;
   types.v1.Path path = 1;
+  types.v1.FileInfo info = 2;
 }
 
 message DeleteResponse {

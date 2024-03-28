@@ -23,7 +23,7 @@ type Blob interface {
 	CreateProjectRootPath(ctx context.Context, projectDir string) error
 	CreatePath(ctx context.Context, projectDir string, filename string, isDir bool, fn CreateFunc) (blake3_64_256_sum []byte, err error)
 	PatchPath(ctx context.Context, projectDir string, filename string, isDir bool, sum *typesv1.FileSum, fn PatchFunc) (blake3_64_256_sum []byte, err error)
-	DeletePath(ctx context.Context, projectDir string, filename string) error
+	DeletePath(ctx context.Context, projectDir string, filename string, isDir bool) error
 }
 
 var _ Blob = (*LocalFS)(nil)
@@ -221,15 +221,19 @@ func (lfs *LocalFS) withAtomicFileSwap(rootDir, filename string, fn CreateFunc) 
 	return sum, nil
 }
 
-func (lfs *LocalFS) DeletePath(ctx context.Context, projectDir string, path string) error {
+func (lfs *LocalFS) DeletePath(ctx context.Context, projectDir string, path string, isDir bool) error {
 	rootDir := filepath.Join(lfs.root, projectDir)
 	endPath := filepath.Join(rootDir, path)
-	unlock, locked := lfs.takeLock(endPath)
 
-	if locked {
+	unlock, locked := lfs.takeLock(endPath)
+	if !locked {
 		return fmt.Errorf("path is already locked by another request, try again later")
 	}
 	defer unlock()
+
+	if isDir {
+		return os.RemoveAll(endPath)
+	}
 
 	return os.Remove(endPath)
 }

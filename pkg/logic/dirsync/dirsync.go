@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -85,7 +84,7 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *Sour
 			// the entire dir is missing, so we can stop looking for
 			// patches and deletes and just generate a list of creates
 			// for this entire dir
-			err := emitCreateOpsForDir(fs, path, srcDir, emitCreate)
+			err := emitCreateOpsForDir(path, srcDir, emitCreate)
 			if err != nil {
 				dirPath := typesv1.PathJoin(path, srcDir.Info.Name)
 				return fmt.Errorf("emitting diff for directory %q: %w", dirPath, err)
@@ -101,7 +100,7 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *Sour
 
 		// check if the dir itself needs a patch too
 		if diff := makeDirDiff(srcDir, sinkDir); diff != nil {
-			op := patchDirOp(path, src.Info.Name, diff)
+			op := patchDirOp(path, srcDir.Info, diff)
 			if err := emitPatch(op); err != nil {
 				return fmt.Errorf("emitting patch dir: %w", err)
 			}
@@ -110,7 +109,8 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *Sour
 	for _, sinkDir := range sink.Dirs {
 		// set(Sink_dir) - set(Src_dir)
 		if !srcHasDirNamed(src, sinkDir.Info.Name) {
-			op := deleteDirOp(path, sink)
+			dirPath := typesv1.PathJoin(path, sinkDir.Info.Name)
+			op := deleteDirOp(dirPath, sink.Info)
 			if err := emitDelete(op); err != nil {
 				return fmt.Errorf("emitting delete dir: %w", err)
 			}
@@ -122,7 +122,7 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *Sour
 		// set(Src_file) - set(Sink_file)
 		sinkFile, found := sinkHasFileNamed(sink, srcFile.Info.Name)
 		if !found {
-			op := createFileOp(fs, path, srcFile.Info)
+			op := createFileOp(path, srcFile.Info)
 			if err := emitCreate(op); err != nil {
 				return fmt.Errorf("emitting create file: %w", err)
 			}
@@ -151,7 +151,6 @@ func computeDirDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *Sour
 }
 
 func emitCreateOpsForDir(
-	fs fs.FS,
 	path *typesv1.Path,
 	dir *SourceDir,
 	emitCreate func(CreateOp) error,
@@ -165,13 +164,13 @@ func emitCreateOpsForDir(
 	// have entire directories to transfer at once, which will help expedite
 	// the search
 	for _, file := range dir.Files {
-		op := createFileOp(fs, currentDir, file.Info)
+		op := createFileOp(currentDir, file.Info)
 		if err := emitCreate(op); err != nil {
 			return fmt.Errorf("emiting opds for file: %w", err)
 		}
 	}
 	for _, dir := range dir.Dirs {
-		err := emitCreateOpsForDir(fs, currentDir, dir, emitCreate)
+		err := emitCreateOpsForDir(currentDir, dir, emitCreate)
 		if err != nil {
 			return fmt.Errorf("emiting opds for subdir: %w", err)
 		}
@@ -236,15 +235,17 @@ func createDirOp(path *typesv1.Path, dir *SourceDir) CreateOp {
 	}
 }
 
-func deleteDirOp(path *typesv1.Path, sink *typesv1.DirSum) DeleteOp {
+func deleteDirOp(path *typesv1.Path, fi *typesv1.FileInfo) DeleteOp {
 	return DeleteOp{
-		Path: typesv1.PathJoin(path, sink.Info.Name),
+		Path:     path,
+		FileInfo: fi,
 	}
 }
 
-func patchDirOp(path *typesv1.Path, dirname string, diff *DirPatchOp) PatchOp {
+func patchDirOp(path *typesv1.Path, fi *typesv1.FileInfo, diff *DirPatchOp) PatchOp {
 	return PatchOp{
-		Path: typesv1.PathJoin(path, dirname),
+		Path: path,
+		Info: fi,
 		Dir:  diff,
 	}
 }
@@ -252,26 +253,16 @@ func patchDirOp(path *typesv1.Path, dirname string, diff *DirPatchOp) PatchOp {
 func makeDirDiff(src *SourceDir, sink *typesv1.DirSum) *DirPatchOp {
 	sink.Info.Size = src.Info.Size // not a reliable indicator of difference
 	if !proto.Equal(src.Info, sink.Info) {
-		want := protojson.Format(src.Info)
-		got := protojson.Format(sink.Info)
-		_, _ = want, got
 		return &DirPatchOp{}
 	}
 	return nil
 }
 
-func createFileOp(fs fs.FS, path *typesv1.Path, fi *typesv1.FileInfo) CreateOp {
-	op := CreateOp{
+func createFileOp(path *typesv1.Path, fi *typesv1.FileInfo) CreateOp {
+	return CreateOp{
 		ParentDir: path,
 		FileInfo:  fi,
 	}
-	p := typesv1.StringFromPath(typesv1.PathJoin(path, fi.Name))
-	if f, err := fs.Open(p); err != nil {
-		println(err)
-	} else {
-		f.Close()
-	}
-	return op
 }
 
 func deleteFileOp(path *typesv1.Path, sink *typesv1.FileSum) DeleteOp {
@@ -334,22 +325,28 @@ func upload(ctx context.Context, src Source, sink Sink, createOp CreateOp) error
 func patch(ctx context.Context, src Source, sink Sink, patchOp PatchOp) error {
 	if patchOp.Dir != nil {
 		// patch a dir
-		panic("todo")
-		return nil
+		path := typesv1.PathJoin(patchOp.Path, patchOp.Info.Name)
+
+		spath := typesv1.StringFromPath(path)
+		fi, err := src.Stat(spath)
+		if err != nil {
+			return fmt.Errorf("stating dir %q on source: %w", spath, err)
+		}
+		return sink.PatchFile(ctx, patchOp.Path, typesv1.FileInfoFromFS(fi), nil, nil)
 	}
 
 	path := typesv1.PathJoin(patchOp.Path, patchOp.File.Sum.Info.Name)
 	fileDiff := patchOp.File
-
-	f, err := src.Open(typesv1.StringFromPath(path))
+	spath := typesv1.StringFromPath(path)
+	f, err := src.Open(spath)
 	if err != nil {
-		return fmt.Errorf("opening %q on source: %w", path, err)
+		return fmt.Errorf("opening file %q on source: %w", spath, err)
 	}
 	defer f.Close()
 
 	fi, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("stating %q on source: %w", path, err)
+		return fmt.Errorf("stating file %q on source: %w", spath, err)
 	}
 
 	return sink.PatchFile(ctx, patchOp.Path, typesv1.FileInfoFromFS(fi), fileDiff.Sum, f)

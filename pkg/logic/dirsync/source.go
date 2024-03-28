@@ -20,7 +20,8 @@ type CreateOp struct {
 }
 
 type DeleteOp struct {
-	Path *typesv1.Path
+	Path     *typesv1.Path
+	FileInfo *typesv1.FileInfo
 }
 
 type SourceDir struct {
