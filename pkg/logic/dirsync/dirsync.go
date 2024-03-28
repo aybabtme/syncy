@@ -267,7 +267,8 @@ func createFileOp(path *typesv1.Path, fi *typesv1.FileInfo) CreateOp {
 
 func deleteFileOp(path *typesv1.Path, sink *typesv1.FileSum) DeleteOp {
 	return DeleteOp{
-		Path: typesv1.PathJoin(path, sink.Info.Name),
+		Path:     typesv1.PathJoin(path, sink.Info.Name),
+		FileInfo: sink.Info,
 	}
 }
 
