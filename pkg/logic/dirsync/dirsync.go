@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -249,7 +250,11 @@ func patchDirOp(path *typesv1.Path, dirname string, diff *DirPatchOp) PatchOp {
 }
 
 func makeDirDiff(src *SourceDir, sink *typesv1.DirSum) *DirPatchOp {
+	sink.Info.Size = src.Info.Size // not a reliable indicator of difference
 	if !proto.Equal(src.Info, sink.Info) {
+		want := protojson.Format(src.Info)
+		got := protojson.Format(sink.Info)
+		_, _ = want, got
 		return &DirPatchOp{}
 	}
 	return nil
@@ -284,7 +289,7 @@ func patchFileOp(path *typesv1.Path, diff *FilePatchOp) PatchOp {
 
 func makeFileDiff(ctx context.Context, fs fs.FS, path *typesv1.Path, src *SourceFile, sink *typesv1.FileSum) (*FilePatchOp, error) {
 	// compute mod time, size
-	if !proto.Equal(src.Info, sink) {
+	if !proto.Equal(src.Info, sink.Info) {
 		// obviously changed, we don't need to sum the content to figure as such
 		return &FilePatchOp{
 			Sum: sink,
@@ -311,7 +316,6 @@ func upload(ctx context.Context, src Source, sink Sink, createOp CreateOp) error
 	path := typesv1.StringFromPath(typesv1.PathJoin(createOp.ParentDir, createOp.FileInfo.Name))
 	f, err := src.Open(path)
 	if err != nil {
-		_, _ = src.Open(path)
 		return fmt.Errorf("opening %q on source for upload: %w", path, err)
 	}
 	defer f.Close()
@@ -330,7 +334,7 @@ func upload(ctx context.Context, src Source, sink Sink, createOp CreateOp) error
 func patch(ctx context.Context, src Source, sink Sink, patchOp PatchOp) error {
 	if patchOp.Dir != nil {
 		// patch a dir
-		// panic("todo")
+		panic("todo")
 		return nil
 	}
 

@@ -353,14 +353,16 @@ func getFileInfo(ctx context.Context, ll *slog.Logger, querier querier, projectI
 	return scanFileInfo(row)
 }
 
-const dirInfoColumns = "`name`, `mod_time`, `mode`"
+const dirInfoColumns = "`name`, `mod_time_unix_ns`, `mode`"
 
 func scanDirInfo(row scanner) (*typesv1.FileInfo, bool, error) {
-	var modTimeUnix int64
+	var (
+		modTimeUnixNs int64
+	)
 	fi := new(typesv1.FileInfo)
 	if err := row.Scan(
 		&fi.Name,
-		&modTimeUnix,
+		&modTimeUnixNs,
 		&fi.Mode,
 	); err == sql.ErrNoRows {
 		return nil, false, nil
@@ -368,19 +370,21 @@ func scanDirInfo(row scanner) (*typesv1.FileInfo, bool, error) {
 		return nil, false, err
 	}
 	fi.IsDir = true
-	fi.ModTime = timestamppb.New(time.Unix(modTimeUnix, 0))
+	fi.ModTime = timestamppb.New(time.Unix(0, modTimeUnixNs))
 	return fi, true, nil
 }
 
-const fileInfoColumns = "`name`, `size`, `mod_time`, `mode`"
+const fileInfoColumns = "`name`, `size`, `mod_time_unix_ns`, `mode`"
 
 func scanFileInfo(row scanner) (*typesv1.FileInfo, bool, error) {
-	var modTimeUnix int64
+	var (
+		modTimeUnixNs int64
+	)
 	fi := new(typesv1.FileInfo)
 	if err := row.Scan(
 		&fi.Name,
 		&fi.Size,
-		&modTimeUnix,
+		&modTimeUnixNs,
 		&fi.Mode,
 	); err == sql.ErrNoRows {
 		return nil, false, nil
@@ -388,7 +392,7 @@ func scanFileInfo(row scanner) (*typesv1.FileInfo, bool, error) {
 		return nil, false, err
 	}
 	fi.IsDir = false
-	fi.ModTime = timestamppb.New(time.Unix(modTimeUnix, 0))
+	fi.ModTime = timestamppb.New(time.Unix(0, modTimeUnixNs))
 	return fi, true, nil
 }
 
@@ -704,21 +708,21 @@ func createPendingFile(ctx context.Context, execer execer, projectID uint64, par
 	)
 	if parentDirID != nil {
 		res, err = execer.ExecContext(ctx,
-			"INSERT INTO files (`project_id`, `dir_id`, `name`, `size`, `mod_time`, `mode`) VALUES (?,?,?,?,?,?)",
+			"INSERT INTO files (`project_id`, `dir_id`, `name`, `size`, `mod_time_unix_ns`, `mode`) VALUES (?,?,?,?,?,?)",
 			projectID,
 			parentDirID,
 			name,
 			fi.Size,
-			fi.ModTime.AsTime().Unix(),
+			fi.ModTime.AsTime().UnixNano(),
 			fi.Mode,
 		)
 	} else {
 		res, err = execer.ExecContext(ctx,
-			"INSERT INTO files (`project_id`, `name`, `size`, `mod_time`, `mode`) VALUES (?,?,?,?,?)",
+			"INSERT INTO files (`project_id`, `name`, `size`, `mod_time_unix_ns`, `mode`) VALUES (?,?,?,?,?)",
 			projectID,
 			name,
 			fi.Size,
-			fi.ModTime.AsTime().Unix(),
+			fi.ModTime.AsTime().UnixNano(),
 			fi.Mode,
 		)
 	}
@@ -772,12 +776,12 @@ func finishPendingPatchFile(ctx context.Context, db *sql.DB, pendingFileID uint6
 			"UPDATE files\n"+
 				"SET\n"+
 				"	`size` = ?,\n"+
-				"	`mod_time` = ?,\n"+
+				"	`mod_time_unix_ns` = ?,\n"+
 				"	`mode` = ?,\n"+
 				"	`blake3_64_256_sum` = ?\n"+
 				"WHERE id = ? LIMIT 1",
 			fi.Size,
-			fi.ModTime.AsTime().Unix(),
+			fi.ModTime.AsTime().UnixNano(),
 			fi.Mode,
 			blake3_64_256_sum,
 			pendingFileID,
@@ -882,19 +886,19 @@ func createDir(ctx context.Context,
 	if parentDirID != nil {
 
 		res, err = execer.ExecContext(ctx,
-			"INSERT INTO dirs (`project_id`, `parent_id`, `name`, `mod_time`, `mode`) VALUES (?, ?, ?, ?, ?)",
+			"INSERT INTO dirs (`project_id`, `parent_id`, `name`, `mod_time_unix_ns`, `mode`) VALUES (?, ?, ?, ?, ?)",
 			projectID,
 			parentDirID,
 			name,
-			fi.ModTime.AsTime().Unix(),
+			fi.ModTime.AsTime().UnixNano(),
 			fi.Mode,
 		)
 	} else {
 		res, err = execer.ExecContext(ctx,
-			"INSERT INTO dirs (`project_id`, `name`, `mod_time`, `mode`) VALUES (?, ?, ?, ?)",
+			"INSERT INTO dirs (`project_id`, `name`, `mod_time_unix_ns`, `mode`) VALUES (?, ?, ?, ?)",
 			projectID,
 			name,
-			fi.ModTime.AsTime().Unix(),
+			fi.ModTime.AsTime().UnixNano(),
 			fi.Mode,
 		)
 	}

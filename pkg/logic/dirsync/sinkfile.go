@@ -74,11 +74,6 @@ func fileMatchesFileSum(
 	block := make([]byte, blockSize) // TODO: use sync.Pool
 loop:
 	for i := 0; more; i++ {
-
-		if i >= len(sum.SumBlocks) {
-			return false, nil // new file has more blocks, so clearly it's not equal
-		}
-
 		n, err := io.ReadFull(file, block)
 		switch err {
 		case io.EOF, io.ErrUnexpectedEOF:
@@ -90,6 +85,10 @@ loop:
 		}
 		if n == 0 {
 			break loop
+		}
+
+		if i >= len(sum.SumBlocks) {
+			return false, nil // new file has more blocks, so clearly it's not equal
 		}
 
 		expectBlock := sum.SumBlocks[i]

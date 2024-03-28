@@ -29,7 +29,7 @@ CREATE TABLE dirs (
     `project_id` BIGINT NOT NULL,
     `parent_id` BIGINT,
     `name` VARCHAR(255) NOT NULL,
-    `mod_time` BIGINT NOT NULL,
+    `mod_time_unix_ns` BIGINT NOT NULL,
     `mode` INT UNSIGNED NOT NULL,
     UNIQUE (`project_id`, `parent_id`, `name`)
 );
@@ -41,7 +41,7 @@ CREATE TABLE files (
     `name` VARCHAR(255) NOT NULL,
 
     `size` BIGINT NOT NULL,
-    `mod_time` BIGINT NOT NULL,
+    `mod_time_unix_ns` BIGINT NOT NULL,
     `mode` INT UNSIGNED NOT NULL,
 
     `blake3_64_256_sum` BINARY(64) DEFAULT NULL,
