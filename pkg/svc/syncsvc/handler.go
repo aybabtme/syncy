@@ -184,7 +184,7 @@ func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown hasher: %s", creating.Hasher.String()))
 	}
-	ll.InfoContext(ctx, "creating path")
+	ll.DebugContext(ctx, "creating path")
 	accountPubID, projectID := req.GetMeta().AccountId, req.GetMeta().ProjectId
 	err := hdl.db.CreatePath(ctx, accountPubID, projectID, creating.Path, creating.Info, func(w io.Writer) (blake3_64_256_sum []byte, _ error) {
 		tgt := io.MultiWriter(w, h)
@@ -196,14 +196,14 @@ func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.
 			}
 			switch step := req.Step.(type) {
 			case *v1.CreateRequest_Writing_:
-				ll.InfoContext(ctx, "writing file block")
+				ll.DebugContext(ctx, "writing file block")
 				_, err = tgt.Write(step.Writing.ContentBlock)
 				if err != nil {
 					ll.Error("writing content to target", slog.Any("err", err))
 					return nil, connect.NewError(connect.CodeInternal, errors.New("unable to write to target"))
 				}
 			case *v1.CreateRequest_Closing_:
-				ll.InfoContext(ctx, "closing file")
+				ll.DebugContext(ctx, "closing file")
 				gotSum := h.Sum(nil)
 				wantSum := req.GetClosing().Sum
 				if !bytes.Equal(gotSum, wantSum) {
@@ -259,7 +259,7 @@ func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.P
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown hasher: %s", opening.Hasher.String()))
 	}
-	ll.InfoContext(ctx, "opening path for patching")
+	ll.DebugContext(ctx, "opening path for patching")
 	accountPubID, projectID := req.GetMeta().AccountId, req.GetMeta().ProjectId
 	err := hdl.db.PatchPath(ctx, accountPubID, projectID, opening.Path, opening.Info, opening.Sum, func(orig io.ReadSeeker, w io.Writer) (blake3_64_256_sum []byte, _ error) {
 		tgt := io.MultiWriter(w, h)
@@ -274,7 +274,7 @@ func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.P
 			}
 			switch step := req.Step.(type) {
 			case *v1.PatchRequest_Patching_:
-				ll.InfoContext(ctx, "applying patch")
+				ll.DebugContext(ctx, "applying patch")
 				switch p := step.Patching.Patch.Patch.(type) {
 				case *typesv1.FileBlockPatch_BlockId:
 					_, err = patcher.WriteBlock(p.BlockId)
@@ -289,7 +289,7 @@ func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.P
 				}
 
 			case *v1.PatchRequest_Closing_:
-				ll.InfoContext(ctx, "closing file")
+				ll.DebugContext(ctx, "closing file")
 				gotSum := h.Sum(nil)
 				wantSum := req.GetClosing().Sum
 				if !bytes.Equal(gotSum, wantSum) {

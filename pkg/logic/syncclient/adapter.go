@@ -48,13 +48,13 @@ func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.F
 		slog.String("file", fi.Name),
 	)
 	success := false
-	ll.InfoContext(ctx, "creating file")
+	ll.DebugContext(ctx, "creating file")
 	stream := sk.client.Create(ctx)
 	defer func() {
 		if !success {
-			ll.InfoContext(ctx, "failed, closing and receiving")
+			ll.DebugContext(ctx, "failed, closing and receiving")
 			_, _ = stream.CloseAndReceive()
-			ll.InfoContext(ctx, "done closing and receiving")
+			ll.DebugContext(ctx, "done closing and receiving")
 		}
 	}()
 
@@ -69,21 +69,21 @@ func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.F
 			},
 		},
 	}
-	ll.InfoContext(ctx, "starting step create")
+	ll.DebugContext(ctx, "starting step create")
 	if err := stream.Send(creating); err != nil {
 		return fmt.Errorf("creating file on sink: %w", err)
 	}
-	ll.InfoContext(ctx, "done step create")
+	ll.DebugContext(ctx, "done step create")
 
 	if fi.IsDir {
 		closing := &syncv1.CreateRequest{
 			Step: &syncv1.CreateRequest_Closing_{Closing: &syncv1.CreateRequest_Closing{}},
 		}
-		ll.InfoContext(ctx, "starting step closing")
+		ll.DebugContext(ctx, "starting step closing")
 		if err := stream.Send(closing); err != nil {
 			return fmt.Errorf("closing file sink: %w", err)
 		}
-		ll.InfoContext(ctx, "done step closing")
+		ll.DebugContext(ctx, "done step closing")
 		success = true
 
 		res, err := stream.CloseAndReceive()
@@ -113,7 +113,7 @@ func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.F
 	buf := make([]byte, blockSize)
 	more := true
 	for more {
-		ll.InfoContext(ctx, "reading data", slog.Uint64("blocksize", uint64(blockSize)))
+		ll.DebugContext(ctx, "reading data", slog.Uint64("blocksize", uint64(blockSize)))
 		n, err := io.ReadFull(r, buf)
 		switch err {
 		case io.EOF, io.ErrUnexpectedEOF:
@@ -125,11 +125,11 @@ func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.F
 		}
 		if n > 0 {
 			writingStep.ContentBlock = buf[:n]
-			ll.InfoContext(ctx, "starting step writing")
+			ll.DebugContext(ctx, "starting step writing")
 			if err := stream.Send(writing); err != nil {
 				return fmt.Errorf("writing file on sink: %w", err)
 			}
-			ll.InfoContext(ctx, "done step writing")
+			ll.DebugContext(ctx, "done step writing")
 		}
 	}
 
@@ -141,20 +141,20 @@ func (sk *Sink) CreateFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.F
 			},
 		},
 	}
-	ll.InfoContext(ctx, "starting step closing")
+	ll.DebugContext(ctx, "starting step closing")
 	if err := stream.Send(closing); err != nil {
 		return fmt.Errorf("closing file sink: %w", err)
 	}
-	ll.InfoContext(ctx, "done step closing")
+	ll.DebugContext(ctx, "done step closing")
 	success = true
 
-	ll.InfoContext(ctx, "success, closing and receiving")
+	ll.DebugContext(ctx, "success, closing and receiving")
 	res, err := stream.CloseAndReceive()
 	if err != nil {
 		return fmt.Errorf("closing stream: %w", err)
 	}
 	_ = res
-	ll.InfoContext(ctx, "done closing and receiving")
+	ll.DebugContext(ctx, "done closing and receiving")
 
 	return err
 }
@@ -165,13 +165,13 @@ func (sk *Sink) PatchFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.Fi
 		slog.String("file", fi.Name),
 	)
 	success := false
-	ll.InfoContext(ctx, "patching file")
+	ll.DebugContext(ctx, "patching file")
 	stream := sk.client.Patch(ctx)
 	defer func() {
 		if !success {
-			ll.InfoContext(ctx, "failed, closing and receiving")
+			ll.DebugContext(ctx, "failed, closing and receiving")
 			_, _ = stream.CloseAndReceive()
-			ll.InfoContext(ctx, "done closing and receiving")
+			ll.DebugContext(ctx, "done closing and receiving")
 		}
 	}()
 
@@ -187,21 +187,21 @@ func (sk *Sink) PatchFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.Fi
 			},
 		},
 	}
-	ll.InfoContext(ctx, "starting step open")
+	ll.DebugContext(ctx, "starting step open")
 	if err := stream.Send(opening); err != nil {
 		return fmt.Errorf("opening file on sink: %w", err)
 	}
-	ll.InfoContext(ctx, "done step open")
+	ll.DebugContext(ctx, "done step open")
 
 	if fi.IsDir {
 		closing := &syncv1.PatchRequest{
 			Step: &syncv1.PatchRequest_Closing_{Closing: &syncv1.PatchRequest_Closing{}},
 		}
-		ll.InfoContext(ctx, "starting step closing")
+		ll.DebugContext(ctx, "starting step closing")
 		if err := stream.Send(closing); err != nil {
 			return fmt.Errorf("closing file sink: %w", err)
 		}
-		ll.InfoContext(ctx, "done step closing")
+		ll.DebugContext(ctx, "done step closing")
 		success = true
 
 		res, err := stream.CloseAndReceive()
@@ -235,19 +235,19 @@ func (sk *Sink) PatchFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.Fi
 
 	_, err := dirsync.Rsync(ctx, r, sum,
 		func(b []byte) (int, error) {
-			ll.InfoContext(ctx, "starting block data patching")
+			ll.DebugContext(ctx, "starting block data patching")
 			dataPatch.Data = b
 			patch.Patch = dataPatch
 			err := stream.Send(patching)
-			ll.InfoContext(ctx, "done block data patching")
+			ll.DebugContext(ctx, "done block data patching")
 			return len(b), err
 		},
 		func(u uint32) (int, error) {
-			ll.InfoContext(ctx, "starting block id patching")
+			ll.DebugContext(ctx, "starting block id patching")
 			blockIDPatch.BlockId = u
 			patch.Patch = blockIDPatch
 			err := stream.Send(patching)
-			ll.InfoContext(ctx, "done block id patching")
+			ll.DebugContext(ctx, "done block id patching")
 			return 4, err
 		},
 	)
@@ -263,20 +263,20 @@ func (sk *Sink) PatchFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.Fi
 			},
 		},
 	}
-	ll.InfoContext(ctx, "starting step closing")
+	ll.DebugContext(ctx, "starting step closing")
 	if err := stream.Send(closing); err != nil {
 		return fmt.Errorf("closing file sink: %w", err)
 	}
-	ll.InfoContext(ctx, "done step closing")
+	ll.DebugContext(ctx, "done step closing")
 	success = true
 
-	ll.InfoContext(ctx, "success, closing and receiving")
+	ll.DebugContext(ctx, "success, closing and receiving")
 	res, err := stream.CloseAndReceive()
 	if err != nil {
 		return fmt.Errorf("closing stream: %w", err)
 	}
 	_ = res
-	ll.InfoContext(ctx, "done closing and receiving")
+	ll.DebugContext(ctx, "done closing and receiving")
 
 	return err
 }
