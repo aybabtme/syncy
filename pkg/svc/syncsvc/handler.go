@@ -223,8 +223,12 @@ func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.
 		}
 	})
 	if err != nil {
+		if err == storage.ErrParentDirDoesntExist {
+			path := typesv1.StringFromPath(creating.Path)
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("parent directory doesn't exist for %q, create it first", path))
+		}
 		ll.Error("creating path", slog.Any("err", err))
-		return nil, fmt.Errorf("failed to create path")
+		return nil, fmt.Errorf("failed to create path: %q", typesv1.StringFromPath(creating.Path))
 	}
 	return connect.NewResponse(&v1.CreateResponse{}), nil
 }
@@ -312,13 +316,13 @@ func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.P
 	return connect.NewResponse(&v1.PatchResponse{}), nil
 }
 
-func (hdl *Handler) Deletes(ctx context.Context, req *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error) {
-	ll := hdl.ll.WithGroup("Deletes")
-	ll.InfoContext(ctx, "received Deletes req")
-	defer ll.InfoContext(ctx, "done Deletes")
+func (hdl *Handler) Delete(ctx context.Context, req *connect.Request[v1.DeleteRequest]) (*connect.Response[v1.DeleteResponse], error) {
+	ll := hdl.ll.WithGroup("Delete")
+	ll.InfoContext(ctx, "received Delete req")
+	defer ll.InfoContext(ctx, "done Delete")
 
 	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
-	if err := hdl.db.DeletePaths(ctx, accountPubID, projectID, req.Msg.Paths); err != nil {
+	if err := hdl.db.DeletePath(ctx, accountPubID, projectID, req.Msg.Path); err != nil {
 		if err == storage.ErrProjectDoesntExist {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
@@ -326,5 +330,5 @@ func (hdl *Handler) Deletes(ctx context.Context, req *connect.Request[v1.Deletes
 		return nil, connect.NewError(connect.CodeInternal, errors.New("unable to delete paths"))
 	}
 
-	return connect.NewResponse(&v1.DeletesResponse{}), nil
+	return connect.NewResponse(&v1.DeleteResponse{}), nil
 }

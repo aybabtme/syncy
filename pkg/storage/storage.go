@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	ErrProjectDoesntExist = metadb.ErrProjectDoesntExist
-	ErrAccountDoesntExist = metadb.ErrAccountDoesntExist
+	ErrAccountDoesntExist   = metadb.ErrAccountDoesntExist
+	ErrProjectDoesntExist   = metadb.ErrProjectDoesntExist
+	ErrParentDirDoesntExist = metadb.ErrParentDirDoesntExist
 )
 
 type DB interface {
@@ -24,7 +25,7 @@ type DB interface {
 	GetFileSum(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) (*typesv1.FileSum, bool, error)
 	CreatePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, fn blobdb.CreateFunc) error
 	PatchPath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path, fi *typesv1.FileInfo, sum *typesv1.FileSum, fn blobdb.PatchFunc) error
-	DeletePaths(ctx context.Context, accountPublicID, projectPublicID string, paths []*typesv1.Path) error
+	DeletePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) error
 }
 
 var _ DB = (*State)(nil)
@@ -71,8 +72,8 @@ func (state *State) ListDir(ctx context.Context, accountPublicID, projectPublicI
 }
 
 func (state *State) GetSignature(ctx context.Context, accountPublicID, projectPublicID string) (*typesv1.DirSum, error) {
-	return state.meta.GetSignature(ctx, accountPublicID, projectPublicID, func(root string) (*typesv1.DirSum, error) {
-		return state.blob.GetSignature(ctx, root)
+	return state.meta.GetSignature(ctx, accountPublicID, projectPublicID, func(projectDir, filename string, fi *typesv1.FileInfo) (*typesv1.FileSum, bool, error) {
+		return state.blob.GetFileSum(ctx, projectDir, filename, fi)
 	})
 }
 
@@ -98,8 +99,8 @@ func (state *State) PatchPath(ctx context.Context, accountPublicID, projectPubli
 	})
 }
 
-func (state *State) DeletePaths(ctx context.Context, accountPublicID, projectPublicID string, paths []*typesv1.Path) error {
-	return state.meta.DeletePaths(ctx, accountPublicID, projectPublicID, paths, func(projectDir, filename string) error {
+func (state *State) DeletePath(ctx context.Context, accountPublicID, projectPublicID string, path *typesv1.Path) error {
+	return state.meta.DeletePath(ctx, accountPublicID, projectPublicID, path, func(projectDir, filename string) error {
 		return state.blob.DeletePath(ctx, projectDir, filename)
 	})
 }

@@ -21,8 +21,8 @@
             "cwd": "${workspaceFolder}",
             "args": ["sync", "/tmp/humanlog"],
             "env": {
-                "SYNCY_ACCOUNT_ID": "j83WyocZUDWa",
-                "SYNCY_PROJECT_ID": "2l-oesnNSZWD",
+                "SYNCY_ACCOUNT_ID": "Dl2yncnis808",
+                "SYNCY_PROJECT_ID": "1qrutSXbcNBR",
             }
         },
         {

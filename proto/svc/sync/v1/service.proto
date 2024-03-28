@@ -25,7 +25,7 @@ service SyncService {
   rpc GetFileSum(GetFileSumRequest) returns (GetFileSumResponse) {}
   rpc Create(stream CreateRequest) returns (CreateResponse) {}
   rpc Patch(stream PatchRequest) returns (PatchResponse) {}
-  rpc Deletes(DeletesRequest) returns (DeletesResponse) {}
+  rpc Delete(DeleteRequest) returns (DeleteResponse) {}
 }
 
 message CreateAccountRequest {
@@ -150,11 +150,11 @@ message PatchResponse {
   types.v1.ResMeta meta = 1000;
 }
 
-message DeletesRequest {
+message DeleteRequest {
   types.v1.ReqMeta meta = 1000;
-  repeated types.v1.Path paths = 1;
+  types.v1.Path path = 1;
 }
 
-message DeletesResponse {
+message DeleteResponse {
   types.v1.ResMeta meta = 1000;
 }

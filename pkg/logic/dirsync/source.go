@@ -46,6 +46,9 @@ func traceSource(ctx context.Context, base string, fi fs.FileInfo, fs Source) (*
 	dir := &SourceDir{
 		Info: typesv1.FileInfoFromFS(fi),
 	}
+	if base == "." {
+		dir.Info.Name = ""
+	}
 
 	fsEntries, err := fs.ReadDir(base)
 	if err != nil {

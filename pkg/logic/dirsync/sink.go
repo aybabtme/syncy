@@ -12,7 +12,7 @@ type Sink interface {
 	GetSignatures(ctx context.Context) (*typesv1.DirSum, error)
 	CreateFile(ctx context.Context, path *typesv1.Path, fi *typesv1.FileInfo, r io.Reader) error
 	PatchFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.FileInfo, sum *typesv1.FileSum, r io.Reader) error
-	DeleteFiles(context.Context, []DeleteOp) error
+	DeleteFile(context.Context, DeleteOp) error
 }
 
 type SumDB interface {
@@ -28,14 +28,19 @@ func TraceSink(ctx context.Context, root string, sumDB SumDB) (*typesv1.DirSum, 
 
 func trace(ctx context.Context, namespace string, parent *typesv1.Path, base string, sumDB SumDB) (*typesv1.DirSum, error) {
 	path := typesv1.PathJoin(parent, base)
-	fi, _, err := sumDB.Stat(ctx, namespace, typesv1.StringFromPath(path))
+
+	var (
+		fi  *typesv1.FileInfo
+		err error
+	)
+	if base == "" {
+		fi = &typesv1.FileInfo{IsDir: true}
+	} else {
+		fi, _, err = sumDB.Stat(ctx, namespace, typesv1.StringFromPath(path))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("stating dir: %w", err)
 	}
-	if base == "" {
-		fi.Name = "" // strip it
-	}
-
 	dir := &typesv1.DirSum{
 		Path: parent,
 		Info: fi,
@@ -61,12 +66,13 @@ func trace(ctx context.Context, namespace string, parent *typesv1.Path, base str
 			dir.Info.Size += child.Info.Size
 		} else {
 			path := typesv1.PathJoin(parent, base)
-			file, ok, err := sumDB.GetFileSum(ctx, namespace, typesv1.StringFromPath(path), fsEntry)
+			spath := typesv1.StringFromPath(path)
+			file, ok, err := sumDB.GetFileSum(ctx, namespace, spath, fsEntry)
 			if err != nil {
-				return nil, fmt.Errorf("looking up filesum for file %q in %q: %w", fsEntry.Name, typesv1.StringFromPath(path), err)
+				return nil, fmt.Errorf("looking up filesum for file %q in %q: %w", fsEntry.Name, spath, err)
 			}
 			if !ok {
-				return nil, fmt.Errorf("missing filesum for file %q in %q", fsEntry.Name, typesv1.StringFromPath(path))
+				return nil, fmt.Errorf("missing filesum for file %q in %q", fsEntry.Name, spath)
 			}
 
 			dir.Files = append(dir.Files, file)

@@ -146,23 +146,9 @@ func syncCommand(serverSchemeFlag, serverAddrFlag, serverPortFlag, serverPathFla
 
 			ll.InfoContext(ctx, "preparing to sync", slog.String("path", path))
 
-			dir := filepath.Dir(path)
-			if dir == "." {
-				dir = ""
-			}
-			base := filepath.Base(path)
+			src := os.DirFS(path).(dirsync.Source)
 
-			src := os.DirFS(dir).(dirsync.Source)
-
-			dirs, err := src.ReadDir(base)
-			ll.InfoContext(ctx, "readirs",
-				slog.String("dir", dir),
-				slog.Any("dirs", dirs),
-				slog.String("base", base),
-				slog.Any("err", err),
-			)
-
-			err = dirsync.Sync(ctx, base, src, sink, syncParams)
+			err = dirsync.Sync(ctx, ".", src, sink, syncParams)
 			if err != nil {
 				return fmt.Errorf("failed to sync: %w", err)
 			}

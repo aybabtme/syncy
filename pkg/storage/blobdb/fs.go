@@ -2,7 +2,7 @@ package blobdb
 
 import (
 	"context"
-	"encoding/base32"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
@@ -146,12 +146,12 @@ func (lfs *LocalFS) CreatePath(ctx context.Context, projectDir string, path stri
 		// we don't use `fi` because we don't want to let
 		// requester dictate our local file access policies
 		err := os.Mkdir(endPath, 0755)
-		if err != nil {
+		if err != nil && !os.IsExist(err) {
 			return nil, fmt.Errorf("creating dir %q: %w", endPath, err)
 		}
 		return nil, nil
 	}
-	return lfs.withAtomicFileSwap(path, fn)
+	return lfs.withAtomicFileSwap(rootDir, path, fn)
 }
 
 type PatchFunc func(orig io.ReadSeeker, w io.Writer) (blake3_64_256_sum []byte, err error)
@@ -189,15 +189,15 @@ func (lfs *LocalFS) PatchPath(ctx context.Context, projectDir, path string, isDi
 	if err != nil {
 		return nil, fmt.Errorf("seeking back to begining of original file: %w", err)
 	}
-	return lfs.withAtomicFileSwap(path, func(w io.Writer) (blake3_64_256_sum []byte, err error) {
+	return lfs.withAtomicFileSwap(rootDir, path, func(w io.Writer) (blake3_64_256_sum []byte, err error) {
 		return fn(origf, w)
 	})
 }
 
-func (lfs *LocalFS) withAtomicFileSwap(filename string, fn CreateFunc) (blake3_64_256_sum []byte, _ error) {
-	endPath := filepath.Join(lfs.root, filename)
-	tmpFilename := base32.HexEncoding.EncodeToString([]byte(filename))
-	tmpFile, err := os.CreateTemp(lfs.scratch, tmpFilename)
+func (lfs *LocalFS) withAtomicFileSwap(rootDir, filename string, fn CreateFunc) (blake3_64_256_sum []byte, _ error) {
+	endPath := filepath.Join(rootDir, filename)
+	tmpFilename := filepath.Join(lfs.scratch, hex.EncodeToString([]byte(filename)))
+	tmpFile, err := os.Create(tmpFilename)
 	if err != nil {
 		return nil, fmt.Errorf("creating temp file in scratch location: %w", err)
 	}
@@ -205,7 +205,7 @@ func (lfs *LocalFS) withAtomicFileSwap(filename string, fn CreateFunc) (blake3_6
 	defer func() {
 		if !success {
 			_ = tmpFile.Close()
-			_ = os.Remove(tmpFile.Name())
+			_ = os.Remove(tmpFilename)
 		}
 	}()
 	sum, err := fn(tmpFile)
@@ -215,7 +215,7 @@ func (lfs *LocalFS) withAtomicFileSwap(filename string, fn CreateFunc) (blake3_6
 	if err := tmpFile.Close(); err != nil {
 		return nil, fmt.Errorf("flushing scratch file: %w", err)
 	}
-	if err := os.Rename(tmpFile.Name(), endPath); err != nil {
+	if err := os.Rename(tmpFilename, endPath); err != nil {
 		return nil, fmt.Errorf("atomic swap of old file with new file: %w", err)
 	}
 	return sum, nil

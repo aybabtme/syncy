@@ -10,9 +10,8 @@ import (
 	syncv1 "github.com/aybabtme/syncy/pkg/gen/svc/sync/v1"
 	"github.com/aybabtme/syncy/pkg/gen/svc/sync/v1/syncv1connect"
 	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
-	"lukechampine.com/blake3"
-
 	"github.com/aybabtme/syncy/pkg/logic/dirsync"
+	"lukechampine.com/blake3"
 )
 
 var _ dirsync.Sink = (*Sink)(nil)
@@ -282,7 +281,10 @@ func (sk *Sink) PatchFile(ctx context.Context, dir *typesv1.Path, fi *typesv1.Fi
 	return err
 }
 
-func (sk *Sink) DeleteFiles(ctx context.Context, ops []dirsync.DeleteOp) error {
-	_, err := sk.client.Deletes(ctx, connect.NewRequest(&syncv1.DeletesRequest{Meta: sk.meta}))
+func (sk *Sink) DeleteFile(ctx context.Context, op dirsync.DeleteOp) error {
+	_, err := sk.client.Delete(ctx, connect.NewRequest(&syncv1.DeleteRequest{
+		Meta: sk.meta,
+		Path: op.Path,
+	}))
 	return err
 }

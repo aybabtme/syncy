@@ -52,8 +52,8 @@ const (
 	SyncServiceCreateProcedure = "/svc.sync.v1.SyncService/Create"
 	// SyncServicePatchProcedure is the fully-qualified name of the SyncService's Patch RPC.
 	SyncServicePatchProcedure = "/svc.sync.v1.SyncService/Patch"
-	// SyncServiceDeletesProcedure is the fully-qualified name of the SyncService's Deletes RPC.
-	SyncServiceDeletesProcedure = "/svc.sync.v1.SyncService/Deletes"
+	// SyncServiceDeleteProcedure is the fully-qualified name of the SyncService's Delete RPC.
+	SyncServiceDeleteProcedure = "/svc.sync.v1.SyncService/Delete"
 )
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
@@ -67,7 +67,7 @@ var (
 	syncServiceGetFileSumMethodDescriptor    = syncServiceServiceDescriptor.Methods().ByName("GetFileSum")
 	syncServiceCreateMethodDescriptor        = syncServiceServiceDescriptor.Methods().ByName("Create")
 	syncServicePatchMethodDescriptor         = syncServiceServiceDescriptor.Methods().ByName("Patch")
-	syncServiceDeletesMethodDescriptor       = syncServiceServiceDescriptor.Methods().ByName("Deletes")
+	syncServiceDeleteMethodDescriptor        = syncServiceServiceDescriptor.Methods().ByName("Delete")
 )
 
 // SyncServiceClient is a client for the svc.sync.v1.SyncService service.
@@ -84,7 +84,7 @@ type SyncServiceClient interface {
 	GetFileSum(context.Context, *connect.Request[v1.GetFileSumRequest]) (*connect.Response[v1.GetFileSumResponse], error)
 	Create(context.Context) *connect.ClientStreamForClient[v1.CreateRequest, v1.CreateResponse]
 	Patch(context.Context) *connect.ClientStreamForClient[v1.PatchRequest, v1.PatchResponse]
-	Deletes(context.Context, *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error)
+	Delete(context.Context, *connect.Request[v1.DeleteRequest]) (*connect.Response[v1.DeleteResponse], error)
 }
 
 // NewSyncServiceClient constructs a client for the svc.sync.v1.SyncService service. By default, it
@@ -145,10 +145,10 @@ func NewSyncServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(syncServicePatchMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
-		deletes: connect.NewClient[v1.DeletesRequest, v1.DeletesResponse](
+		delete: connect.NewClient[v1.DeleteRequest, v1.DeleteResponse](
 			httpClient,
-			baseURL+SyncServiceDeletesProcedure,
-			connect.WithSchema(syncServiceDeletesMethodDescriptor),
+			baseURL+SyncServiceDeleteProcedure,
+			connect.WithSchema(syncServiceDeleteMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -164,7 +164,7 @@ type syncServiceClient struct {
 	getFileSum    *connect.Client[v1.GetFileSumRequest, v1.GetFileSumResponse]
 	create        *connect.Client[v1.CreateRequest, v1.CreateResponse]
 	patch         *connect.Client[v1.PatchRequest, v1.PatchResponse]
-	deletes       *connect.Client[v1.DeletesRequest, v1.DeletesResponse]
+	delete        *connect.Client[v1.DeleteRequest, v1.DeleteResponse]
 }
 
 // CreateAccount calls svc.sync.v1.SyncService.CreateAccount.
@@ -207,9 +207,9 @@ func (c *syncServiceClient) Patch(ctx context.Context) *connect.ClientStreamForC
 	return c.patch.CallClientStream(ctx)
 }
 
-// Deletes calls svc.sync.v1.SyncService.Deletes.
-func (c *syncServiceClient) Deletes(ctx context.Context, req *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error) {
-	return c.deletes.CallUnary(ctx, req)
+// Delete calls svc.sync.v1.SyncService.Delete.
+func (c *syncServiceClient) Delete(ctx context.Context, req *connect.Request[v1.DeleteRequest]) (*connect.Response[v1.DeleteResponse], error) {
+	return c.delete.CallUnary(ctx, req)
 }
 
 // SyncServiceHandler is an implementation of the svc.sync.v1.SyncService service.
@@ -226,7 +226,7 @@ type SyncServiceHandler interface {
 	GetFileSum(context.Context, *connect.Request[v1.GetFileSumRequest]) (*connect.Response[v1.GetFileSumResponse], error)
 	Create(context.Context, *connect.ClientStream[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error)
 	Patch(context.Context, *connect.ClientStream[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error)
-	Deletes(context.Context, *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error)
+	Delete(context.Context, *connect.Request[v1.DeleteRequest]) (*connect.Response[v1.DeleteResponse], error)
 }
 
 // NewSyncServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -283,10 +283,10 @@ func NewSyncServiceHandler(svc SyncServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(syncServicePatchMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
-	syncServiceDeletesHandler := connect.NewUnaryHandler(
-		SyncServiceDeletesProcedure,
-		svc.Deletes,
-		connect.WithSchema(syncServiceDeletesMethodDescriptor),
+	syncServiceDeleteHandler := connect.NewUnaryHandler(
+		SyncServiceDeleteProcedure,
+		svc.Delete,
+		connect.WithSchema(syncServiceDeleteMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/svc.sync.v1.SyncService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -307,8 +307,8 @@ func NewSyncServiceHandler(svc SyncServiceHandler, opts ...connect.HandlerOption
 			syncServiceCreateHandler.ServeHTTP(w, r)
 		case SyncServicePatchProcedure:
 			syncServicePatchHandler.ServeHTTP(w, r)
-		case SyncServiceDeletesProcedure:
-			syncServiceDeletesHandler.ServeHTTP(w, r)
+		case SyncServiceDeleteProcedure:
+			syncServiceDeleteHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -350,6 +350,6 @@ func (UnimplementedSyncServiceHandler) Patch(context.Context, *connect.ClientStr
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.Patch is not implemented"))
 }
 
-func (UnimplementedSyncServiceHandler) Deletes(context.Context, *connect.Request[v1.DeletesRequest]) (*connect.Response[v1.DeletesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.Deletes is not implemented"))
+func (UnimplementedSyncServiceHandler) Delete(context.Context, *connect.Request[v1.DeleteRequest]) (*connect.Response[v1.DeleteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("svc.sync.v1.SyncService.Delete is not implemented"))
 }
