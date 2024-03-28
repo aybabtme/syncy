@@ -13,6 +13,7 @@ import (
 	typesv1 "github.com/aybabtme/syncy/pkg/gen/types/v1"
 	"github.com/aybabtme/syncy/pkg/logic/dirsync"
 	"google.golang.org/protobuf/proto"
+	"lukechampine.com/blake3"
 )
 
 type Blob interface {
@@ -196,7 +197,10 @@ func (lfs *LocalFS) PatchPath(ctx context.Context, projectDir, path string, isDi
 
 func (lfs *LocalFS) withAtomicFileSwap(rootDir, filename string, fn CreateFunc) (blake3_64_256_sum []byte, _ error) {
 	endPath := filepath.Join(rootDir, filename)
-	tmpFilename := filepath.Join(lfs.scratch, hex.EncodeToString([]byte(filename)))
+
+	filenamesum := blake3.Sum256([]byte(filename))
+
+	tmpFilename := filepath.Join(lfs.scratch, hex.EncodeToString(filenamesum[:]))
 	tmpFile, err := os.Create(tmpFilename)
 	if err != nil {
 		return nil, fmt.Errorf("creating temp file in scratch location: %w", err)

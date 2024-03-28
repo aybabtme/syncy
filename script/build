@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+
+set -eu
+
+root=$(git rev-parse --show-toplevel)
+
+function host_os() {
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        echo "linux"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "darwin"
+    else
+        echo "unsupported OS"
+        exit 1
+    fi
+}
+
+function host_arch() {
+    arch
+}
+
+function build_syncyd_docker_image() {
+    docker build -t syncyd -f ${root}/syncyd.Dockerfile ${root}
+}
+
+function build_syncy_client() {
+    docker run \
+        -it \
+        --rm \
+        -v ${root}:/there \
+        -e GOOS=$(host_os) \
+        -e GOARCH=$(host_arch) \
+        -w /there \
+        golang:1.22.1 \
+        go build -o syncy ./cmd/syncy
+}
+
+function main() {
+    # build_syncyd_docker_image
+    build_syncy_client
+}
+
+main

@@ -33,8 +33,8 @@ func NewHandler(ll *slog.Logger, db storage.DB) *Handler {
 
 func (hdl *Handler) CreateAccount(ctx context.Context, req *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.CreateAccountResponse], error) {
 	ll := hdl.ll.WithGroup("CreateAccount")
-	ll.InfoContext(ctx, "received req CreateAccount")
-	defer ll.InfoContext(ctx, "done req CreateAccount")
+	ll.DebugContext(ctx, "received req CreateAccount")
+	defer ll.DebugContext(ctx, "done req CreateAccount")
 	if req.Msg.AccountName == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("missing account name"))
 	}
@@ -47,8 +47,8 @@ func (hdl *Handler) CreateAccount(ctx context.Context, req *connect.Request[v1.C
 }
 func (hdl *Handler) CreateProject(ctx context.Context, req *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error) {
 	ll := hdl.ll.WithGroup("CreateProject")
-	ll.InfoContext(ctx, "received CreateProject req")
-	defer ll.InfoContext(ctx, "done CreateProject")
+	ll.DebugContext(ctx, "received CreateProject req")
+	defer ll.DebugContext(ctx, "done CreateProject")
 	if req.Msg.AccountId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("missing account ID"))
 	}
@@ -68,10 +68,10 @@ func (hdl *Handler) CreateProject(ctx context.Context, req *connect.Request[v1.C
 
 func (hdl *Handler) Stat(ctx context.Context, req *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error) {
 	ll := hdl.ll.WithGroup("Stat")
-	ll.InfoContext(ctx, "received Stat req",
+	ll.DebugContext(ctx, "received Stat req",
 		slog.Any("path", req.Msg.GetPath()),
 	)
-	defer ll.InfoContext(ctx, "done Stat")
+	defer ll.DebugContext(ctx, "done Stat")
 	// TODO: validate this
 	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
 	fi, ok, err := hdl.db.Stat(ctx, accountPubID, projectID, req.Msg.GetPath())
@@ -93,8 +93,8 @@ func (hdl *Handler) Stat(ctx context.Context, req *connect.Request[v1.StatReques
 
 func (hdl *Handler) ListDir(ctx context.Context, req *connect.Request[v1.ListDirRequest]) (*connect.Response[v1.ListDirResponse], error) {
 	ll := hdl.ll.WithGroup("ListDir")
-	ll.InfoContext(ctx, "received ListDir req")
-	defer ll.InfoContext(ctx, "done ListDir")
+	ll.DebugContext(ctx, "received ListDir req")
+	defer ll.DebugContext(ctx, "done ListDir")
 
 	// TODO: validate this
 	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
@@ -117,8 +117,8 @@ func (hdl *Handler) ListDir(ctx context.Context, req *connect.Request[v1.ListDir
 
 func (hdl *Handler) GetSignature(ctx context.Context, req *connect.Request[v1.GetSignatureRequest]) (*connect.Response[v1.GetSignatureResponse], error) {
 	ll := hdl.ll.WithGroup("GetSignature")
-	ll.InfoContext(ctx, "received GetSignature req")
-	defer ll.InfoContext(ctx, "done GetSignature")
+	ll.DebugContext(ctx, "received GetSignature req")
+	defer ll.DebugContext(ctx, "done GetSignature")
 
 	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
 	sig, err := hdl.db.GetSignature(ctx, accountPubID, projectID)
@@ -137,8 +137,8 @@ func (hdl *Handler) GetSignature(ctx context.Context, req *connect.Request[v1.Ge
 
 func (hdl *Handler) GetFileSum(ctx context.Context, req *connect.Request[v1.GetFileSumRequest]) (*connect.Response[v1.GetFileSumResponse], error) {
 	ll := hdl.ll.WithGroup("GetFileSum")
-	ll.InfoContext(ctx, "received GetFileSum req")
-	defer ll.InfoContext(ctx, "done GetFileSum")
+	ll.DebugContext(ctx, "received GetFileSum req")
+	defer ll.DebugContext(ctx, "done GetFileSum")
 
 	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
 	sig, ok, err := hdl.db.GetFileSum(ctx, accountPubID, projectID, req.Msg.Path)
@@ -160,8 +160,8 @@ func (hdl *Handler) GetFileSum(ctx context.Context, req *connect.Request[v1.GetF
 
 func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.CreateRequest]) (*connect.Response[v1.CreateResponse], error) {
 	ll := hdl.ll.WithGroup("Create")
-	ll.InfoContext(ctx, "received Create req")
-	defer ll.InfoContext(ctx, "done Create")
+	ll.DebugContext(ctx, "received Create req")
+	defer ll.DebugContext(ctx, "done Create")
 
 	conn := stream.Conn()
 
@@ -235,8 +235,8 @@ func (hdl *Handler) Create(ctx context.Context, stream *connect.ClientStream[v1.
 
 func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.PatchRequest]) (*connect.Response[v1.PatchResponse], error) {
 	ll := hdl.ll.WithGroup("Patch")
-	ll.InfoContext(ctx, "received Patch req")
-	defer ll.InfoContext(ctx, "done Patch")
+	ll.DebugContext(ctx, "received Patch req")
+	defer ll.DebugContext(ctx, "done Patch")
 
 	conn := stream.Conn()
 
@@ -318,8 +318,8 @@ func (hdl *Handler) Patch(ctx context.Context, stream *connect.ClientStream[v1.P
 
 func (hdl *Handler) Delete(ctx context.Context, req *connect.Request[v1.DeleteRequest]) (*connect.Response[v1.DeleteResponse], error) {
 	ll := hdl.ll.WithGroup("Delete")
-	ll.InfoContext(ctx, "received Delete req")
-	defer ll.InfoContext(ctx, "done Delete")
+	ll.DebugContext(ctx, "received Delete req")
+	defer ll.DebugContext(ctx, "done Delete")
 
 	accountPubID, projectID := req.Msg.GetMeta().AccountId, req.Msg.GetMeta().ProjectId
 	if err := hdl.db.DeletePath(ctx, accountPubID, projectID, req.Msg.Path, req.Msg.Info); err != nil {
