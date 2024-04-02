@@ -36,7 +36,7 @@ function build_syncy_client() {
 }
 
 function main() {
-    # build_syncyd_docker_image
+    build_syncyd_docker_image
     build_syncy_client
 }
 

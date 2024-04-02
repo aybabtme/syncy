@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -eu
+
+root=$(git rev-parse --show-toplevel)
+
+function run_syncyd() {
+    docker run -it --rm docker.io/library/syncyd
+}
+
+function main() {
+    ${root}/script/build
+    echo "::::::::::::::::::::::::::::::::::::::::::::::::::::::::"
+    echo ":::::: make sure to run mysql with 'script/mysql' ::::::"
+    echo "::::::::::::::::::::::::::::::::::::::::::::::::::::::::"
+    run_syncyd
+}
+
+main
