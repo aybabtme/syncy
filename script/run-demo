@@ -5,7 +5,12 @@ set -eu
 root=$(git rev-parse --show-toplevel)
 
 function create_schema() {
-    mysql -h 127.0.0.1 -uroot < ${root}/pkg/storage/metadb/mysql.sql
+    docker run \
+        -i \
+        --rm \
+        --entrypoint "/bin/mysql" \
+        --net host \
+        mysql:8.3.0 -h 127.0.0.1 -uroot < ${root}/pkg/storage/metadb/mysql.sql
 }
 
 function run_syncyd() {
