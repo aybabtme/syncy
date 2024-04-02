@@ -4,15 +4,17 @@ set -eu
 
 root=$(git rev-parse --show-toplevel)
 
+function create_schema() {
+    mysql -h 127.0.0.1 -uroot < ${root}/pkg/storage/metadb/mysql.sql
+}
+
 function run_syncyd() {
     docker run -it --rm docker.io/library/syncyd
 }
 
 function main() {
+    create_schema
     ${root}/script/build
-    echo "::::::::::::::::::::::::::::::::::::::::::::::::::::::::"
-    echo ":::::: make sure to run mysql with 'script/mysql' ::::::"
-    echo "::::::::::::::::::::::::::::::::::::::::::::::::::::::::"
     run_syncyd
 }
 
