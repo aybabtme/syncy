@@ -1,0 +1,161 @@
+syntax = "proto3";
+
+package svc.sync69.v1;
+
+import "types/v1/dir.proto";
+import "types/v1/file.proto";
+import "types/v1/path.proto";
+import "types/v1/meta.proto";
+
+option go_package = "svc/sync69/v1;sync69v1";
+
+service SyncService {
+  // mgmt
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse) {}
+  rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse) {}
+  
+  // info
+  rpc Stat(StatRequest) returns (StatResponse) {}
+  rpc ListDir(ListDirRequest) returns (ListDirResponse) {}
+
+
+  // sync
+  // TODO: split in a separate service definition
+  rpc GetSignature(GetSignatureRequest) returns (GetSignatureResponse) {}
+  rpc GetFileSum(GetFileSumRequest) returns (GetFileSumResponse) {}
+  rpc Create(stream CreateRequest) returns (CreateResponse) {}
+  rpc Patch(stream PatchRequest) returns (PatchResponse) {}
+  rpc Delete(DeleteRequest) returns (DeleteResponse) {}
+}
+
+message CreateAccountRequest {
+  string account_name = 1;
+}
+
+message CreateAccountResponse {
+  string account_id = 1;
+}
+
+message CreateProjectRequest {
+  string account_id = 1;
+  string project_name = 2;
+}
+
+message CreateProjectResponse {
+  string project_id = 1;
+}
+
+message GetRootRequest {
+  types.v1.ReqMeta meta = 1000;
+}
+
+message GetRootResponse {
+  types.v1.ResMeta meta = 1000;
+
+  types.v1.Dir root = 1;
+}
+
+message StatRequest {
+  types.v1.ReqMeta meta = 1000;
+ 
+  types.v1.Path path = 1;
+}
+
+message StatResponse {
+  types.v1.ResMeta meta = 1000;
+ 
+  types.v1.FileInfo info = 1;
+}
+
+message ListDirRequest {
+  types.v1.ReqMeta meta = 1000;
+  types.v1.Path path = 1;
+}
+
+message ListDirResponse {
+  types.v1.ResMeta meta = 1000;
+  repeated types.v1.FileInfo dir_entries = 1;
+}
+
+message GetSignatureRequest {
+  types.v1.ReqMeta meta = 1000;
+}
+
+message GetSignatureResponse {
+  types.v1.ResMeta meta = 1000;
+  types.v1.DirSum root = 1;
+}
+
+message GetFileSumRequest {
+  types.v1.ReqMeta meta = 1000;
+  types.v1.Path path = 1;
+}
+
+message GetFileSumResponse {
+  types.v1.ResMeta meta = 1000;
+  types.v1.FileSum sum = 1;
+}
+
+enum Hasher {
+  invalid = 0;
+  blake3_64_256 = 1;
+}
+
+message CreateRequest {
+  types.v1.ReqMeta meta = 1000;
+  message Creating {
+    types.v1.Path path = 1;
+    types.v1.FileInfo info = 2;
+    Hasher hasher = 3;
+  }
+  message Writing {
+    bytes content_block = 1;
+  }
+  message Closing {
+    bytes sum = 1;
+  }
+  oneof step {
+     Creating creating = 1;
+     Writing writing = 2;
+     Closing closing = 3;
+  }
+}
+
+message CreateResponse {
+  types.v1.ResMeta meta = 1000;
+}
+
+message PatchRequest {
+  types.v1.ReqMeta meta = 1000;
+  message Opening {
+    types.v1.Path path = 1;
+    types.v1.FileInfo info = 2;
+    Hasher hasher = 3;
+    types.v1.FileSum sum = 4;
+  }
+  message Patching {
+    types.v1.FileBlockPatch patch = 1;
+  }
+  message Closing {
+    bytes sum = 1;
+  }
+  oneof step {
+    Opening opening = 1;
+    Patching patching = 2;
+    Closing closing = 3;
+  }
+}
+
+message PatchResponse {
+  types.v1.ResMeta meta = 1000;
+}
+
+message DeleteRequest {
+  types.v1.ReqMeta meta = 1000;
+  types.v1.Path path = 1;
+  types.v1.FileInfo info = 2;
+}
+
+message DeleteResponse {
+  types.v1.ResMeta meta = 1000;
+}
